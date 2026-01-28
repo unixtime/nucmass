@@ -24,6 +24,11 @@ try:
 except ImportError:
     pdfplumber = None
 
+try:
+    from tqdm import tqdm
+except ImportError:
+    tqdm = None
+
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 
 # Expected columns based on FRDM2012 arXiv PDF table (page 68+)
@@ -172,9 +177,18 @@ class FRDM2012Extractor:
             start_page = max(1, start_page)
             end_page = min(total_pages, end_page)
 
-            print(f"Extracting pages {start_page}-{end_page} of {total_pages}...")
+            page_range = range(start_page - 1, end_page)
+            if tqdm is not None:
+                page_range = tqdm(
+                    page_range,
+                    desc="Extracting pages",
+                    unit="page",
+                    total=end_page - start_page + 1,
+                )
+            else:
+                print(f"Extracting pages {start_page}-{end_page} of {total_pages}...")
 
-            for page_num in range(start_page - 1, end_page):
+            for page_num in page_range:
                 page = pdf.pages[page_num]
                 tables = page.extract_tables()
 
@@ -187,10 +201,6 @@ class FRDM2012Extractor:
                         if self._is_header_row(row):
                             continue
                         all_rows.append(row)
-
-                # Progress indicator
-                if (page_num + 1) % 20 == 0:
-                    print(f"  Processed page {page_num + 1}...")
 
         print(f"Extracted {len(all_rows)} raw rows")
 
@@ -270,9 +280,18 @@ class FRDM2012Extractor:
             start_page = max(1, start_page)
             end_page = min(total_pages, end_page)
 
-            print(f"Text-based extraction, pages {start_page}-{end_page}...")
+            page_range = range(start_page - 1, end_page)
+            if tqdm is not None:
+                page_range = tqdm(
+                    page_range,
+                    desc="Extracting (text)",
+                    unit="page",
+                    total=end_page - start_page + 1,
+                )
+            else:
+                print(f"Text-based extraction, pages {start_page}-{end_page}...")
 
-            for page_num in range(start_page - 1, end_page):
+            for page_num in page_range:
                 page = pdf.pages[page_num]
                 text = page.extract_text()
 
@@ -296,9 +315,6 @@ class FRDM2012Extractor:
                             # Prepend Z to the row
                             row = [current_z] + values
                             all_rows.append(row)
-
-                if (page_num + 1) % 20 == 0:
-                    print(f"  Processed page {page_num + 1}... ({len(all_rows)} rows so far)")
 
         print(f"Extracted {len(all_rows)} rows via text parsing")
 

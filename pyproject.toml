@@ -1,6 +1,6 @@
 [project]
 name = "nucmass"
-version = "1.0.0"
+version = "1.1.0"
 description = "Nuclear mass data toolkit for researchers - Parse AME2020 experimental and FRDM2012 theoretical mass tables"
 readme = "README.md"
 license = {text = "MIT"}
@@ -29,13 +29,19 @@ dependencies = [
     "duckdb>=1.4.4",
     "matplotlib>=3.8",
     "seaborn>=0.13",
+    "click>=8.0",
+    "tqdm>=4.60",
 ]
+
+[project.scripts]
+nucmass = "nucmass.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ipython"]
 notebook = ["jupyterlab>=4.0", "ipykernel>=6.0"]
 pdf = ["nbconvert[webpdf]"]
-all = ["nucmass[dev,notebook,pdf]"]
+docs = ["sphinx>=7.0", "sphinx-autobuild"]
+all = ["nucmass[dev,notebook,pdf,docs]"]
 
 [project.urls]
 Homepage = "https://github.com/unixtime/nucmass"

@@ -2,48 +2,39 @@
 
 **Nuclear Mass Data Toolkit for Researchers**
 
-A Python toolkit providing easy access to nuclear mass data from two authoritative sources:
+A Python toolkit providing easy access to nuclear mass and decay data from three authoritative sources:
 
 | Dataset | Nuclides | Type | Z Range | Description |
 |---------|----------|------|---------|-------------|
 | **AME2020** | 3,558 | Experimental | 0–118 | Atomic Mass Evaluation 2020 |
 | **FRDM2012** | 9,318 | Theoretical | 8–136 | Finite Range Droplet Model predictions |
+| **NUBASE2020** | 5,843 | Experimental | 0–118 | Half-lives, decay modes, spin/parity |
 
-## Why This Toolkit?
+## Features
 
-Getting nuclear mass data shouldn't be hard. The official FRDM2012 data file is hosted on servers with SSL/TLS issues, making it inaccessible via standard downloads. The AME2020 data uses a complex fixed-width format that requires careful parsing.
-
-**This toolkit solves these problems:**
-- Pre-extracted and validated data ready to use
-- Simple Python interface (no SQL knowledge required)
-- Combined database with both experimental and theoretical masses
-- Includes 516 superheavy element predictions (Z > 118)
+- **Unified Database**: Query experimental and theoretical masses through a single interface
+- **Physical Calculations**: Separation energies (S_n, S_p, S_2n, S_2p, S_α), Q-values, binding energies
+- **Decay Properties**: Half-lives, decay modes, spin/parity from NUBASE2020
+- **Visualization**: Publication-quality nuclear charts and isotope chain plots
+- **CLI Interface**: Quick lookups from the command line
+- **DuckDB Backend**: Fast SQL-based queries for complex analyses
 
 ## Quick Start
 
-### For Researchers (Recommended)
+### Installation
 
 ```bash
-# 1. Download and extract
-#    Option A: Clone from GitHub
+# Clone the repository
 git clone https://github.com/unixtime/nucmass.git
 cd nucmass
 
-#    Option B: Download ZIP and extract
-#    Download from: https://github.com/unixtime/nucmass/archive/main.zip
-#    Then: unzip nucmass-main.zip && cd nucmass-main
-
-# 2. Install Python package manager (if not installed)
+# Install with uv (recommended)
 curl -LsSf https://astral.sh/uv/install.sh | sh
-source ~/.bashrc  # or restart terminal
-
-# 3. Create environment and install
-uv venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+uv venv && source .venv/bin/activate
 uv pip install -e "."
 
-# 4. Start using!
-python -c "from nucmass import NuclearDatabase; print(NuclearDatabase().summary())"
+# Or with pip
+pip install -e "."
 ```
 
 ### Python Usage
@@ -51,74 +42,76 @@ python -c "from nucmass import NuclearDatabase; print(NuclearDatabase().summary(
 ```python
 from nucmass import NuclearDatabase
 
-# Connect to the database
-db = NuclearDatabase()
+# Use context manager for automatic cleanup
+with NuclearDatabase() as db:
+    # Look up a specific nuclide
+    fe56 = db.get_nuclide(z=26, n=30)  # Iron-56
+    print(f"Fe-56 mass excess: {fe56['mass_excess_exp_keV']:.0f} keV")
+    print(f"Fe-56 deformation: {fe56['beta2']:.3f}")
 
-# Look up a specific nuclide
-fe56 = db.get_nuclide(z=26, n=30)  # Iron-56
-print(f"Fe-56 mass excess: {fe56['mass_excess_exp_keV']:.0f} keV")
-print(f"Fe-56 deformation: {fe56['beta2']:.3f}")
+    # Calculate separation energies
+    s2n = db.get_separation_energy_2n(z=82, n=126)  # Pb-208
+    print(f"Pb-208 S_2n = {s2n:.2f} MeV")
 
-# Get all isotopes of an element
-uranium = db.get_isotopes(z=92)
-print(f"Found {len(uranium)} uranium isotopes")
-
-# Find deformed nuclei
-deformed = db.get_deformed(min_beta2=0.3)
-print(f"Found {len(deformed)} highly deformed nuclei")
-
-# Get superheavy predictions (no experimental data)
-predicted = db.get_predicted_only()
-superheavy = predicted[predicted['Z'] > 118]
-print(f"Superheavy predictions: {len(superheavy)}")
+    # Get all isotopes of an element
+    uranium = db.get_isotopes(z=92)
+    print(f"Found {len(uranium)} uranium isotopes")
 ```
 
-## Installation Options
+### Decay Data (NUBASE2020)
 
-### Option 1: Using uv (Recommended)
+```python
+from nucmass import NUBASEParser
 
-[uv](https://github.com/astral-sh/uv) is a fast Python package manager.
+parser = NUBASEParser("data/nubase_4.mas20.txt")
 
-**macOS / Linux:**
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
+# Get Fe-56 properties
+fe56 = parser.get_nuclide(z=26, n=30)
+print(f"Fe-56 is stable: {fe56['is_stable']}")
+print(f"Spin/parity: {fe56['spin_parity']}")
+
+# Find all stable nuclides
+stable = parser.get_stable()
+print(f"Found {len(stable)} stable nuclides")
+
+# Get alpha emitters
+alpha = parser.get_by_decay_mode("A=")
+print(f"Found {len(alpha)} alpha emitters")
 ```
 
-**Windows (PowerShell):**
-```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-**Alternative methods:**
-```bash
-# macOS with Homebrew
-brew install uv
-
-# With pip (any platform)
-pip install uv
-```
-
-Then install nucmass:
-```bash
-uv venv
-source .venv/bin/activate
-uv pip install -e "."
-```
-
-### Option 2: Using pip
+### Command-Line Interface
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -e "."
+# Look up a nuclide
+nucmass lookup 26 30          # Fe-56
+nucmass lookup 82 126 --json  # Pb-208 as JSON
+
+# Separation energies
+nucmass separation 82 126     # Shows S_n, S_2n, S_p, S_2p, S_α
+
+# List isotopes
+nucmass isotopes 92 -n 10     # First 10 uranium isotopes
+
+# Q-value calculation
+nucmass qvalue 26 30 26 31    # Fe-56(n,γ)Fe-57
+
+# Database summary
+nucmass summary
 ```
 
-### Option 3: Using conda
+### Plotting
 
-```bash
-conda create -n nucmass python=3.12
-conda activate nucmass
-pip install -e "."
+```python
+from nucmass import NuclearDatabase, plot_chart, plot_isotope_chain
+
+with NuclearDatabase() as db:
+    # Nuclear chart colored by deformation
+    fig = plot_chart(db, color_by="beta2")
+    fig.savefig("nuclear_chart.png", dpi=150)
+
+    # Sn isotope chain with S_2n
+    fig = plot_isotope_chain(db, z=50, y="S_2n")
+    fig.savefig("sn_chain.png", dpi=150)
 ```
 
 ## Data Sources & Citations
@@ -130,10 +123,6 @@ pip install -e "."
 > *Chinese Physics C*, 45(3), 030003.
 > DOI: [10.1088/1674-1137/abddb0](https://doi.org/10.1088/1674-1137/abddb0)
 
-- Source: [IAEA Atomic Mass Data Center](https://www-nds.iaea.org/amdc/)
-- Contains: Experimental atomic masses, binding energies, decay energies
-- Coverage: Z = 0–118 (neutron to Oganesson)
-
 ### FRDM2012 (Theoretical Masses)
 
 > Möller, P., Sierk, A.J., Ichikawa, T., & Sagawa, H. (2016).
@@ -142,139 +131,76 @@ pip install -e "."
 > DOI: [10.1016/j.adt.2015.10.002](https://doi.org/10.1016/j.adt.2015.10.002)
 > arXiv: [1508.06294](https://arxiv.org/abs/1508.06294)
 
-- Contains: Theoretical masses, deformation parameters (β₂–β₆), shell corrections
-- Coverage: Z = 8–136 (Oxygen to element 136)
-- Includes 516 predictions for superheavy elements beyond Oganesson
+### NUBASE2020 (Nuclear Properties)
+
+> Kondev, F.G., Wang, M., Huang, W.J., Naimi, S., & Audi, G. (2021).
+> **The NUBASE2020 evaluation of nuclear physics properties.**
+> *Chinese Physics C*, 45(3), 030001.
+> DOI: [10.1088/1674-1137/abddae](https://doi.org/10.1088/1674-1137/abddae)
+
+Data files available from: [ANL Atomic Mass Data Resources](https://www.anl.gov/phy/atomic-mass-data-resources)
 
 ## Available Data
 
-### Database Columns
+The unified `nuclides` view in the DuckDB database combines all three data sources with the following columns:
+
+### Mass & Structure Columns
 
 | Column | Description | Unit | Source |
 |--------|-------------|------|--------|
-| `Z` | Proton number (atomic number) | — | Both |
-| `N` | Neutron number | — | Both |
-| `A` | Mass number (Z + N) | — | Both |
-| `Element` | Chemical symbol | — | AME2020 |
+| `Z` | Proton number | — | All |
+| `N` | Neutron number | — | All |
+| `A` | Mass number (Z + N) | — | All |
+| `Element` | Chemical symbol | — | AME2020/NUBASE |
 | `mass_excess_exp_keV` | Experimental mass excess | keV | AME2020 |
 | `mass_excess_th_keV` | Theoretical mass excess | keV | FRDM2012 |
+| `binding_per_A_exp_keV` | Binding energy per nucleon | keV | AME2020 |
 | `beta2` | Quadrupole deformation | — | FRDM2012 |
 | `beta3`, `beta4`, `beta6` | Higher-order deformations | — | FRDM2012 |
-| `shell_pairing_MeV` | Shell-plus-pairing correction | MeV | FRDM2012 |
 | `has_experimental` | Has AME2020 data | bool | — |
 | `has_theoretical` | Has FRDM2012 data | bool | — |
+| `has_decay_data` | Has NUBASE2020 data | bool | — |
 
-### Understanding Deformation (β₂)
+### Decay Columns (from NUBASE2020)
 
-The quadrupole deformation parameter β₂ describes nuclear shape:
-- **β₂ ≈ 0**: Spherical (like a ball) — typically near magic numbers
-- **β₂ > 0**: Prolate (like a rugby ball) — stretched along symmetry axis
-- **β₂ < 0**: Oblate (like a frisbee) — flattened
+| Column | Description | Unit |
+|--------|-------------|------|
+| `half_life_str` | Half-life with unit (e.g., "4.463 Gy") | — |
+| `half_life_sec` | Half-life in seconds | s |
+| `is_stable` | Stability flag | bool |
+| `spin_parity` | Nuclear spin and parity (e.g., "0+") | — |
+| `decay_modes` | Decay mode string (e.g., "A=100;SF=5e-5") | — |
+| `discovery_year` | Year of discovery | — |
 
-Magic numbers (Z or N = 2, 8, 20, 28, 50, 82, 126) produce spherical nuclei with enhanced stability.
+## Physical Calculations
 
-## Common Research Queries
-
-### Example 1: Find all doubly-magic nuclei
-
-```python
-from nucmass import NuclearDatabase
-
-db = NuclearDatabase()
-
-# Doubly magic: both Z and N are magic numbers
-magic_Z = [8, 20, 28, 50, 82]
-magic_N = [8, 20, 28, 50, 82, 126]
-
-doubly_magic = db.query(f'''
-    SELECT Z, N, A, Element, beta2, shell_pairing_MeV
-    FROM nuclides
-    WHERE Z IN {tuple(magic_Z)} AND N IN {tuple(magic_N)}
-    ORDER BY A
-''')
-print(doubly_magic)
-```
-
-### Example 2: Compare experiment vs theory
+### Separation Energies
 
 ```python
-from nucmass import NuclearDatabase
-import numpy as np
+with NuclearDatabase() as db:
+    # One-neutron separation energy
+    s_n = db.get_separation_energy_n(z=82, n=126)
 
-db = NuclearDatabase()
-comparison = db.compare_masses()
+    # Two-neutron separation energy
+    s_2n = db.get_separation_energy_2n(z=82, n=126)
 
-# Calculate statistics
-mean_diff = comparison['exp_minus_th_keV'].mean() / 1000  # MeV
-rms_diff = np.sqrt((comparison['exp_minus_th_keV']**2).mean()) / 1000
+    # Proton separation energies
+    s_p = db.get_separation_energy_p(z=82, n=126)
+    s_2p = db.get_separation_energy_2p(z=82, n=126)
 
-print(f"Nuclides compared: {len(comparison)}")
-print(f"Mean difference: {mean_diff:.3f} MeV")
-print(f"RMS deviation: {rms_diff:.3f} MeV")
+    # Alpha separation energy
+    s_alpha = db.get_separation_energy_alpha(z=92, n=146)
 ```
 
-### Example 3: Get r-process path nuclei
+### Q-Values
 
 ```python
-from nucmass import NuclearDatabase
+with NuclearDatabase() as db:
+    # Neutron capture Q-value: Fe-56(n,γ)Fe-57
+    q = db.get_q_value(26, 30, 26, 31, z_ejectile=0, n_ejectile=0)
 
-db = NuclearDatabase()
-
-# Neutron-rich nuclei far from stability
-r_process = db.query('''
-    SELECT Z, N, A, mass_excess_th_keV, beta2
-    FROM nuclides
-    WHERE has_theoretical
-      AND NOT has_experimental
-      AND N > Z + 20
-    ORDER BY Z, N
-''')
-print(f"Predicted neutron-rich nuclei: {len(r_process)}")
-```
-
-### Example 4: Export to CSV for Excel
-
-```python
-from nucmass import NuclearDatabase
-
-db = NuclearDatabase()
-
-# Get all data and export
-all_nuclides = db.query("SELECT * FROM nuclides")
-all_nuclides.to_csv("nuclear_masses.csv", index=False)
-print("Saved to nuclear_masses.csv")
-```
-
-## Jupyter Notebook
-
-For interactive exploration:
-
-```bash
-uv pip install -e ".[notebook]"
-jupyter lab notebooks/explore_nuclear_data.ipynb
-```
-
-## Generate Figures
-
-Reproduce key visualizations from the FRDM(2012) paper:
-
-```bash
-python scripts/reproduce_frdm2012_figures.py
-# Output saved to figures/
-```
-
-Generated figures:
-1. Nuclear chart colored by deformation (β₂)
-2. Mass model accuracy (experiment vs theory)
-3. Shell effects visualization
-4. Binding energy per nucleon
-5. Two-neutron separation energies
-
-## Run Tests
-
-```bash
-uv pip install -e ".[dev]"
-pytest tests/ -v
+    # Alpha decay Q-value: U-238 → Th-234 + α
+    q = db.get_q_value(92, 146, 90, 144, z_ejectile=2, n_ejectile=2)
 ```
 
 ## Project Structure
@@ -285,56 +211,43 @@ nucmass/
 │   ├── __init__.py        # Package exports
 │   ├── ame2020.py         # AME2020 parser
 │   ├── frdm2012.py        # FRDM2012 PDF extractor
-│   └── database.py        # DuckDB interface
+│   ├── nubase2020.py      # NUBASE parser
+│   ├── database.py        # DuckDB interface
+│   ├── cli.py             # Command-line interface
+│   ├── plotting.py        # Visualization functions
+│   └── exceptions.py      # Custom exceptions
 ├── data/
-│   ├── ame2020_masses.csv    # Experimental data (3,558 nuclides)
-│   ├── frdm2012_masses.csv   # Theoretical data (9,318 nuclides)
+│   ├── ame2020_masses.csv    # Experimental masses
+│   ├── frdm2012_masses.csv   # Theoretical masses
+│   ├── nubase_4.mas20.txt    # NUBASE2020 decay data
 │   └── nuclear_masses.duckdb # Combined database
 ├── scripts/
-│   ├── download_nuclear_data.py       # Data pipeline
-│   └── reproduce_frdm2012_figures.py  # Generate figures
+│   ├── download_nuclear_data.py
+│   └── reproduce_frdm2012_figures.py
 ├── notebooks/
-│   └── explore_nuclear_data.ipynb     # Interactive exploration
-├── figures/               # Generated plots
-├── tests/                 # Validation tests (29 tests)
-└── docs/                  # Documentation
+│   └── explore_nuclear_data.ipynb
+├── tests/                 # 91 tests
+├── docs/                  # Sphinx documentation
+└── figures/               # Generated plots
 ```
 
-## Troubleshooting
+## Run Tests
 
-### "ModuleNotFoundError: No module named 'nucmass'"
-
-Make sure you've activated the virtual environment:
 ```bash
-source .venv/bin/activate  # Linux/macOS
-.venv\Scripts\activate     # Windows
+uv pip install -e ".[dev]"
+pytest tests/ -v
 ```
 
-### Database not found
+## Jupyter Notebook
 
-Run the data initialization:
 ```bash
-python scripts/download_nuclear_data.py
-```
-
-### PDF extraction issues
-
-If you need to re-extract FRDM2012 data from the original PDF:
-```bash
-# Download PDF from arXiv
-curl -L -o data/frdm2012.pdf "https://arxiv.org/pdf/1508.06294.pdf"
-
-# Extract with full page range
-python scripts/download_nuclear_data.py --frdm-pdf data/frdm2012.pdf
+uv pip install -e ".[notebook]"
+jupyter lab notebooks/explore_nuclear_data.ipynb
 ```
 
 ## License
 
 MIT License - See [LICENSE](LICENSE) for details.
-
-The data itself is subject to the terms of the original publishers:
-- AME2020: IAEA Atomic Mass Data Center
-- FRDM2012: Published under academic use terms
 
 ## Contributing
 
@@ -342,4 +255,4 @@ Contributions are welcome! Please open an issue or pull request on GitHub.
 
 ## Acknowledgments
 
-This toolkit was created to make nuclear mass data more accessible to researchers worldwide. Special thanks to the IAEA AMDC and the FRDM collaboration for making their data available.
+This toolkit was created to make nuclear mass data more accessible to researchers worldwide. Special thanks to the IAEA AMDC, the FRDM collaboration, and Argonne National Laboratory for making their data available.

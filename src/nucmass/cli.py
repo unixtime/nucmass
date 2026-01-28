@@ -1,0 +1,441 @@
+"""
+Command-line interface for nucmass.
+
+Provides easy access to nuclear mass data from the terminal.
+
+Usage:
+    nucmass lookup 26 30          # Get Fe-56 data
+    nucmass isotopes 92           # List all uranium isotopes
+    nucmass separation 26 30      # Calculate separation energies
+    nucmass export -o masses.csv  # Export all data to CSV
+    nucmass summary               # Show database summary
+"""
+
+from __future__ import annotations
+
+import sys
+from typing import Optional
+
+import click
+import pandas as pd
+
+from .database import NuclearDatabase
+from .exceptions import NuclideNotFoundError, InvalidNuclideError
+
+
+# Element symbols for display
+ELEMENT_SYMBOLS = {
+    0: 'n', 1: 'H', 2: 'He', 3: 'Li', 4: 'Be', 5: 'B', 6: 'C', 7: 'N', 8: 'O',
+    9: 'F', 10: 'Ne', 11: 'Na', 12: 'Mg', 13: 'Al', 14: 'Si', 15: 'P', 16: 'S',
+    17: 'Cl', 18: 'Ar', 19: 'K', 20: 'Ca', 21: 'Sc', 22: 'Ti', 23: 'V', 24: 'Cr',
+    25: 'Mn', 26: 'Fe', 27: 'Co', 28: 'Ni', 29: 'Cu', 30: 'Zn', 31: 'Ga', 32: 'Ge',
+    33: 'As', 34: 'Se', 35: 'Br', 36: 'Kr', 37: 'Rb', 38: 'Sr', 39: 'Y', 40: 'Zr',
+    41: 'Nb', 42: 'Mo', 43: 'Tc', 44: 'Ru', 45: 'Rh', 46: 'Pd', 47: 'Ag', 48: 'Cd',
+    49: 'In', 50: 'Sn', 51: 'Sb', 52: 'Te', 53: 'I', 54: 'Xe', 55: 'Cs', 56: 'Ba',
+    57: 'La', 58: 'Ce', 59: 'Pr', 60: 'Nd', 61: 'Pm', 62: 'Sm', 63: 'Eu', 64: 'Gd',
+    65: 'Tb', 66: 'Dy', 67: 'Ho', 68: 'Er', 69: 'Tm', 70: 'Yb', 71: 'Lu', 72: 'Hf',
+    73: 'Ta', 74: 'W', 75: 'Re', 76: 'Os', 77: 'Ir', 78: 'Pt', 79: 'Au', 80: 'Hg',
+    81: 'Tl', 82: 'Pb', 83: 'Bi', 84: 'Po', 85: 'At', 86: 'Rn', 87: 'Fr', 88: 'Ra',
+    89: 'Ac', 90: 'Th', 91: 'Pa', 92: 'U', 93: 'Np', 94: 'Pu', 95: 'Am', 96: 'Cm',
+    97: 'Bk', 98: 'Cf', 99: 'Es', 100: 'Fm', 101: 'Md', 102: 'No', 103: 'Lr',
+    104: 'Rf', 105: 'Db', 106: 'Sg', 107: 'Bh', 108: 'Hs', 109: 'Mt', 110: 'Ds',
+    111: 'Rg', 112: 'Cn', 113: 'Nh', 114: 'Fl', 115: 'Mc', 116: 'Lv', 117: 'Ts',
+    118: 'Og',
+}
+
+
+def get_element_symbol(z: int) -> str:
+    """Get element symbol from Z."""
+    return ELEMENT_SYMBOLS.get(z, f"E{z}")
+
+
+def format_nuclide_name(z: int, a: int) -> str:
+    """Format nuclide name like 'Fe-56'."""
+    return f"{get_element_symbol(z)}-{a}"
+
+
+def format_value(value: float | None, precision: int = 3, unit: str = "") -> str:
+    """Format a numeric value with optional unit."""
+    if value is None or pd.isna(value):
+        return "N/A"
+    if unit:
+        return f"{value:.{precision}f} {unit}"
+    return f"{value:.{precision}f}"
+
+
+@click.group()
+@click.version_option(version="1.1.0", prog_name="nucmass")
+def cli():
+    """
+    Nuclear Mass Data Toolkit - Access AME2020 and FRDM2012 data.
+
+    Examples:
+
+        nucmass lookup 26 30        # Look up Iron-56 (Z=26, N=30)
+
+        nucmass isotopes 92         # List uranium isotopes
+
+        nucmass separation 82 126   # Separation energies for Pb-208
+
+        nucmass export -o data.csv  # Export all nuclides to CSV
+    """
+    pass
+
+
+@cli.command()
+@click.argument('z', type=int)
+@click.argument('n', type=int)
+@click.option('--json', 'output_json', is_flag=True, help='Output as JSON')
+def lookup(z: int, n: int, output_json: bool):
+    """
+    Look up a specific nuclide by Z (protons) and N (neutrons).
+
+    Examples:
+
+        nucmass lookup 26 30   # Iron-56
+
+        nucmass lookup 82 126  # Lead-208 (doubly magic)
+
+        nucmass lookup 92 146  # Uranium-238
+    """
+    db = NuclearDatabase()
+
+    try:
+        nuclide = db.get_nuclide(z, n)
+    except NuclideNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except InvalidNuclideError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+    a = z + n
+    name = format_nuclide_name(z, a)
+
+    if output_json:
+        import json
+        data = nuclide.to_dict()
+        # Convert numpy types to Python types
+        for k, v in data.items():
+            if pd.isna(v):
+                data[k] = None
+            elif hasattr(v, 'item'):
+                data[k] = v.item()
+        click.echo(json.dumps(data, indent=2))
+    else:
+        click.echo(f"\n{name} (Z={z}, N={n}, A={a})")
+        click.echo("=" * 40)
+
+        # Mass data
+        click.echo("\nMass Excess:")
+        if pd.notna(nuclide.get('mass_excess_exp_keV')):
+            click.echo(f"  Experimental: {nuclide['mass_excess_exp_keV']:.1f} keV")
+        if pd.notna(nuclide.get('mass_excess_th_keV')):
+            click.echo(f"  Theoretical:  {nuclide['mass_excess_th_keV']:.1f} keV")
+        if pd.notna(nuclide.get('exp_minus_th_keV')):
+            click.echo(f"  Difference:   {nuclide['exp_minus_th_keV']:.1f} keV")
+
+        # Deformation
+        if pd.notna(nuclide.get('beta2')):
+            click.echo("\nDeformation:")
+            click.echo(f"  β₂ = {nuclide['beta2']:.3f}", nl=False)
+            if abs(nuclide['beta2']) < 0.05:
+                click.echo("  (spherical)")
+            elif nuclide['beta2'] > 0:
+                click.echo("  (prolate)")
+            else:
+                click.echo("  (oblate)")
+
+            if pd.notna(nuclide.get('beta4')):
+                click.echo(f"  β₄ = {nuclide['beta4']:.3f}")
+
+        # Shell correction
+        if pd.notna(nuclide.get('shell_pairing_MeV')):
+            click.echo(f"\nShell+Pairing: {nuclide['shell_pairing_MeV']:.2f} MeV")
+
+        # Data availability
+        click.echo("\nData sources:", nl=False)
+        sources = []
+        if nuclide.get('has_experimental'):
+            sources.append("AME2020")
+        if nuclide.get('has_theoretical'):
+            sources.append("FRDM2012")
+        click.echo(f" {', '.join(sources)}")
+        click.echo()
+
+
+@cli.command()
+@click.argument('z', type=int)
+@click.option('--limit', '-n', default=50, help='Maximum number of isotopes to show')
+@click.option('--format', 'fmt', type=click.Choice(['table', 'csv', 'json']),
+              default='table', help='Output format')
+def isotopes(z: int, limit: int, fmt: str):
+    """
+    List all isotopes of an element (same Z).
+
+    Examples:
+
+        nucmass isotopes 50         # Tin isotopes (most stable isotopes)
+
+        nucmass isotopes 92 -n 10   # First 10 uranium isotopes
+
+        nucmass isotopes 26 --format csv  # Iron isotopes as CSV
+    """
+    db = NuclearDatabase()
+
+    try:
+        df = db.get_isotopes(z)
+    except InvalidNuclideError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+    if len(df) == 0:
+        click.echo(f"No isotopes found for Z={z}")
+        sys.exit(1)
+
+    element = get_element_symbol(z)
+    click.echo(f"\n{element} isotopes (Z={z}): {len(df)} found\n")
+
+    # Select columns for display
+    display_cols = ['N', 'A', 'mass_excess_exp_keV', 'mass_excess_th_keV', 'beta2']
+    df_display = df[display_cols].head(limit).copy()
+
+    if fmt == 'csv':
+        click.echo(df_display.to_csv(index=False))
+    elif fmt == 'json':
+        click.echo(df_display.to_json(orient='records', indent=2))
+    else:
+        # Table format
+        df_display.columns = ['N', 'A', 'M_exp (keV)', 'M_th (keV)', 'β₂']
+        click.echo(df_display.to_string(index=False, na_rep='---'))
+
+    if len(df) > limit:
+        click.echo(f"\n... and {len(df) - limit} more (use -n to show more)")
+
+
+@cli.command()
+@click.argument('n', type=int)
+@click.option('--limit', '-n', default=50, help='Maximum number to show')
+def isotones(n: int, limit: int):
+    """
+    List all isotones (same N, different Z).
+
+    Examples:
+
+        nucmass isotones 82   # N=82 magic number
+
+        nucmass isotones 126  # N=126 magic number
+    """
+    db = NuclearDatabase()
+
+    try:
+        df = db.get_isotones(n)
+    except InvalidNuclideError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+    if len(df) == 0:
+        click.echo(f"No isotones found for N={n}")
+        sys.exit(1)
+
+    click.echo(f"\nN={n} isotones: {len(df)} found\n")
+
+    display_cols = ['Z', 'Element', 'A', 'mass_excess_exp_keV', 'beta2']
+    df_display = df[display_cols].head(limit).copy()
+    df_display.columns = ['Z', 'El', 'A', 'M_exp (keV)', 'β₂']
+    click.echo(df_display.to_string(index=False, na_rep='---'))
+
+    if len(df) > limit:
+        click.echo(f"\n... and {len(df) - limit} more")
+
+
+@cli.command()
+@click.argument('z', type=int)
+@click.argument('n', type=int)
+def separation(z: int, n: int):
+    """
+    Calculate separation energies for a nuclide.
+
+    Shows S_n, S_p, S_2n, S_2p, and S_α (alpha) separation energies.
+
+    Examples:
+
+        nucmass separation 26 30   # Fe-56 separation energies
+
+        nucmass separation 82 126  # Pb-208 (doubly magic)
+    """
+    db = NuclearDatabase()
+
+    # First check the nuclide exists
+    try:
+        nuclide = db.get_nuclide(z, n)
+    except (NuclideNotFoundError, InvalidNuclideError) as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+    a = z + n
+    name = format_nuclide_name(z, a)
+
+    click.echo(f"\nSeparation energies for {name} (Z={z}, N={n})")
+    click.echo("=" * 45)
+
+    # Calculate all separation energies
+    s_n = db.get_separation_energy_n(z, n)
+    s_p = db.get_separation_energy_p(z, n)
+    s_2n = db.get_separation_energy_2n(z, n)
+    s_2p = db.get_separation_energy_2p(z, n)
+    s_alpha = db.get_separation_energy_alpha(z, n)
+
+    click.echo(f"\n  S_n  (one neutron):   {format_value(s_n, 3, 'MeV')}")
+    click.echo(f"  S_p  (one proton):    {format_value(s_p, 3, 'MeV')}")
+    click.echo(f"  S_2n (two neutrons):  {format_value(s_2n, 3, 'MeV')}")
+    click.echo(f"  S_2p (two protons):   {format_value(s_2p, 3, 'MeV')}")
+    click.echo(f"  S_α  (alpha):         {format_value(s_alpha, 3, 'MeV')}")
+
+    # Add interpretation
+    click.echo("\nInterpretation:")
+    if s_n is not None and s_n < 0:
+        click.echo("  ⚠ S_n < 0: Neutron unbound (drip line)")
+    if s_p is not None and s_p < 0:
+        click.echo("  ⚠ S_p < 0: Proton unbound (drip line)")
+    if s_alpha is not None and s_alpha < 0:
+        click.echo("  ⚠ S_α < 0: Alpha decay energetically favored")
+
+    # Check for magic numbers
+    magic_n = [2, 8, 20, 28, 50, 82, 126]
+    magic_z = [2, 8, 20, 28, 50, 82]
+    if n in magic_n:
+        click.echo(f"  ★ N={n} is a magic number (neutron shell closure)")
+    if z in magic_z:
+        click.echo(f"  ★ Z={z} is a magic number (proton shell closure)")
+
+    click.echo()
+
+
+@cli.command()
+@click.option('--output', '-o', type=click.Path(), help='Output file path')
+@click.option('--format', 'fmt', type=click.Choice(['csv', 'json', 'parquet']),
+              default='csv', help='Output format')
+@click.option('--experimental-only', is_flag=True, help='Only export nuclides with experimental data')
+@click.option('--theoretical-only', is_flag=True, help='Only export nuclides with only theoretical data')
+def export(output: Optional[str], fmt: str, experimental_only: bool, theoretical_only: bool):
+    """
+    Export nuclear mass data to a file.
+
+    Examples:
+
+        nucmass export -o masses.csv
+
+        nucmass export -o predicted.csv --theoretical-only
+
+        nucmass export --format json -o masses.json
+    """
+    db = NuclearDatabase()
+
+    # Build query based on filters
+    if experimental_only:
+        df = db.query("SELECT * FROM nuclides WHERE has_experimental ORDER BY Z, N")
+        filter_desc = "experimental"
+    elif theoretical_only:
+        df = db.get_predicted_only()
+        filter_desc = "predicted-only"
+    else:
+        df = db.query("SELECT * FROM nuclides ORDER BY Z, N")
+        filter_desc = "all"
+
+    click.echo(f"Exporting {len(df)} nuclides ({filter_desc})...")
+
+    # Determine output path
+    if output is None:
+        output = f"nuclear_masses_{filter_desc}.{fmt}"
+
+    # Export
+    if fmt == 'csv':
+        df.to_csv(output, index=False)
+    elif fmt == 'json':
+        df.to_json(output, orient='records', indent=2)
+    elif fmt == 'parquet':
+        df.to_parquet(output, index=False)
+
+    click.echo(f"Saved to {output}")
+
+
+@cli.command()
+def summary():
+    """
+    Show database summary statistics.
+    """
+    db = NuclearDatabase()
+    stats = db.summary()
+
+    click.echo("\nNuclear Mass Database Summary")
+    click.echo("=" * 40)
+    click.echo(f"\n  AME2020 (experimental):   {stats['ame2020_count']:,} nuclides")
+    click.echo(f"  FRDM2012 (theoretical):   {stats['frdm2012_count']:,} nuclides")
+    click.echo(f"  Combined (unique):        {stats['total_nuclides']:,} nuclides")
+    click.echo(f"\n  Both exp & theory:        {stats['both_exp_and_th']:,} nuclides")
+    click.echo(f"  Predicted only:           {stats['predicted_only']:,} nuclides")
+
+    # Add some extra info
+    predicted = db.get_predicted_only()
+    superheavy = len(predicted[predicted['Z'] > 118])
+    click.echo(f"  Superheavy (Z > 118):     {superheavy:,} predictions")
+
+    click.echo("\nData sources:")
+    click.echo("  AME2020: Wang et al., Chin. Phys. C 45, 030003 (2021)")
+    click.echo("  FRDM2012: Möller et al., ADNDT 109-110, 1-204 (2016)")
+    click.echo()
+
+
+@cli.command()
+@click.argument('z', type=int)
+@click.argument('n', type=int)
+@click.argument('z_final', type=int)
+@click.argument('n_final', type=int)
+@click.option('--ejectile-z', default=0, help='Ejectile proton number (default: 0)')
+@click.option('--ejectile-n', default=0, help='Ejectile neutron number (default: 0)')
+def qvalue(z: int, n: int, z_final: int, n_final: int, ejectile_z: int, ejectile_n: int):
+    """
+    Calculate Q-value for a nuclear reaction.
+
+    Arguments: Z_initial N_initial Z_final N_final
+
+    Examples:
+
+        nucmass qvalue 26 30 26 31          # Fe-56(n,γ)Fe-57
+
+        nucmass qvalue 92 146 90 144        # U-238 alpha decay
+    """
+    db = NuclearDatabase()
+
+    q = db.get_q_value(z, n, z_final, n_final, ejectile_z, ejectile_n)
+
+    if q is None:
+        click.echo("Error: Could not calculate Q-value (missing mass data)", err=True)
+        sys.exit(1)
+
+    # Determine reaction type
+    initial_name = format_nuclide_name(z, z + n)
+    final_name = format_nuclide_name(z_final, z_final + n_final)
+
+    z_proj = z_final + ejectile_z - z
+    n_proj = n_final + ejectile_n - n
+
+    click.echo(f"\nReaction: {initial_name} + ({z_proj}p,{n_proj}n) → {final_name} + ({ejectile_z}p,{ejectile_n}n)")
+    click.echo(f"Q-value: {q:.3f} MeV")
+
+    if q > 0:
+        click.echo("  → Exothermic (energy released)")
+    else:
+        click.echo(f"  → Endothermic (threshold energy needed)")
+
+    click.echo()
+
+
+def main():
+    """Entry point for the CLI."""
+    cli()
+
+
+if __name__ == '__main__':
+    main()
