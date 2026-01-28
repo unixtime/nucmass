@@ -480,11 +480,15 @@ class NuclearDatabase:
         _validate_z(z, "Proton number must be non-negative.")
         _validate_n(n, "Neutron number must be non-negative.")
 
-        df = self.query(f"SELECT * FROM nuclides WHERE Z = {z} AND N = {n}")
+        df = self.conn.execute(
+            "SELECT * FROM nuclides WHERE Z = ? AND N = ?", [z, n]
+        ).df()
 
         if len(df) == 0:
             # Get available N values for this Z to provide helpful suggestions
-            available = self.query(f"SELECT DISTINCT N FROM nuclides WHERE Z = {z} ORDER BY N")
+            available = self.conn.execute(
+                "SELECT DISTINCT N FROM nuclides WHERE Z = ? ORDER BY N", [z]
+            ).df()
             suggestions = [(z, int(row['N'])) for _, row in available.iterrows()]
             raise NuclideNotFoundError(z, n, suggestions)
 
@@ -506,7 +510,9 @@ class NuclearDatabase:
         _validate_z(z)
         _validate_n(n)
 
-        df = self.query(f"SELECT * FROM nuclides WHERE Z = {z} AND N = {n}")
+        df = self.conn.execute(
+            "SELECT * FROM nuclides WHERE Z = ? AND N = ?", [z, n]
+        ).df()
         if len(df) == 0:
             return None
         return df.iloc[0]
@@ -531,7 +537,9 @@ class NuclearDatabase:
             >>> print(f"N range: {tin['N'].min()} to {tin['N'].max()}")
         """
         _validate_z(z, f"Invalid proton number Z={z}")
-        return self.query(f"SELECT * FROM nuclides WHERE Z = {z} ORDER BY N")
+        return self.conn.execute(
+            "SELECT * FROM nuclides WHERE Z = ? ORDER BY N", [z]
+        ).df()
 
     def get_isotones(self, n: int) -> pd.DataFrame:
         """
@@ -555,7 +563,9 @@ class NuclearDatabase:
             >>> print(f"Found {len(n82)} N=82 isotones")
         """
         _validate_n(n, f"Invalid neutron number N={n}")
-        return self.query(f"SELECT * FROM nuclides WHERE N = {n} ORDER BY Z")
+        return self.conn.execute(
+            "SELECT * FROM nuclides WHERE N = ? ORDER BY Z", [n]
+        ).df()
 
     def get_isobars(self, a: int) -> pd.DataFrame:
         """
@@ -578,7 +588,9 @@ class NuclearDatabase:
             >>> print(a56[['Z', 'Element', 'N', 'mass_excess_exp_keV']])
         """
         _validate_a(a, f"Invalid mass number A={a}")
-        return self.query(f"SELECT * FROM nuclides WHERE A = {a} ORDER BY Z")
+        return self.conn.execute(
+            "SELECT * FROM nuclides WHERE A = ? ORDER BY Z", [a]
+        ).df()
 
     def get_deformed(self, min_beta2: float = 0.2) -> pd.DataFrame:
         """
@@ -608,11 +620,10 @@ class NuclearDatabase:
         if min_beta2 < 0:
             raise ValueError(f"min_beta2 must be non-negative, got {min_beta2}")
 
-        return self.query(f"""
-            SELECT * FROM nuclides
-            WHERE ABS(beta2) >= {min_beta2}
-            ORDER BY ABS(beta2) DESC
-        """)
+        return self.conn.execute(
+            "SELECT * FROM nuclides WHERE ABS(beta2) >= ? ORDER BY ABS(beta2) DESC",
+            [min_beta2]
+        ).df()
 
     def get_predicted_only(self) -> pd.DataFrame:
         """
@@ -955,17 +966,18 @@ class NuclearDatabase:
             >>> rms = np.sqrt((comparison['exp_minus_th_keV']**2).mean())
             >>> print(f"RMS deviation: {rms/1000:.2f} MeV")
         """
-        return self.query(f"""
-            SELECT Z, N, A, Element,
-                   mass_excess_exp_keV,
-                   mass_excess_th_keV,
-                   exp_minus_th_keV,
-                   beta2
-            FROM nuclides
-            WHERE has_experimental AND has_theoretical
-              AND ABS(exp_minus_th_keV) <= {max_diff_keV}
-            ORDER BY ABS(exp_minus_th_keV) DESC
-        """)
+        return self.conn.execute(
+            """SELECT Z, N, A, Element,
+                      mass_excess_exp_keV,
+                      mass_excess_th_keV,
+                      exp_minus_th_keV,
+                      beta2
+               FROM nuclides
+               WHERE has_experimental AND has_theoretical
+                 AND ABS(exp_minus_th_keV) <= ?
+               ORDER BY ABS(exp_minus_th_keV) DESC""",
+            [max_diff_keV]
+        ).df()
 
     def summary(self) -> dict[str, int]:
         """

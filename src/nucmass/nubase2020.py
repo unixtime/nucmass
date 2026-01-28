@@ -36,6 +36,11 @@ import requests
 
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 
+# Pre-compiled regex patterns for performance (avoid recompilation in loops)
+_HALF_LIFE_PATTERN = re.compile(r"([0-9.eE+\-]+)\s*(?:\([^)]*\))?\s*([a-zA-Zμ]+)")
+_ELEMENT_PATTERN = re.compile(r'\d*\s*([A-Za-z]{1,2})')
+_YEAR_PATTERN = re.compile(r'^(\d{4})\s+')
+
 # Multiple mirror URLs for NUBASE2020
 NUBASE2020_MIRRORS = [
     "https://www.anl.gov/sites/www/files/2021-03/nubase_4.mas20.txt",
@@ -159,8 +164,7 @@ def parse_half_life(hl_str: str) -> tuple[str, float | None]:
     # Pattern: number (possibly scientific) followed by unit
     # Examples: "4.5 s", "2.3e-6 ms", "1.2(3) Gy", "613.9    s"
     # Also handles: "12.32   y"
-    pattern = r"([0-9.eE+\-]+)\s*(?:\([^)]*\))?\s*([a-zA-Zμ]+)"
-    match = re.search(pattern, hl_str)
+    match = _HALF_LIFE_PATTERN.search(hl_str)
 
     if match:
         try:
@@ -297,7 +301,7 @@ class NUBASEParser:
             # Element symbol - around cols 11-18
             elem_part = line[11:19].strip()
             # Extract element symbol (1-2 letters only)
-            elem_match = re.match(r'\d*\s*([A-Za-z]{1,2})', elem_part)
+            elem_match = _ELEMENT_PATTERN.match(elem_part)
             if elem_match:
                 element = elem_match.group(1)
             else:
@@ -356,7 +360,7 @@ class NUBASEParser:
             # Extract discovery year from start of decay field
             discovery_year = None
             decay_modes = decay_part
-            year_match = re.match(r'^(\d{4})\s+', decay_part)
+            year_match = _YEAR_PATTERN.match(decay_part)
             if year_match:
                 discovery_year = int(year_match.group(1))
                 decay_modes = decay_part[year_match.end():].strip()
@@ -377,7 +381,7 @@ class NUBASEParser:
                 "decay_modes": decay_modes,
             }
 
-        except Exception:
+        except (ValueError, IndexError, KeyError, AttributeError, TypeError):
             return None
 
     def to_csv(self, output_path: Path | str) -> None:

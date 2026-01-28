@@ -218,20 +218,74 @@ def plot_isotope_chain(
         default_title = f"{element} Isotopes: Mass Excess"
 
     elif y in ("S_n", "S_2n", "S_p", "S_2p"):
-        # Calculate separation energies
+        # Calculate separation energies using batch query (avoids N+1 query pattern)
         n_values = df["N"].values
-        s_values = []
 
-        for n in n_values:
-            if y == "S_n":
-                s = db.get_separation_energy_n(z, int(n))
-            elif y == "S_2n":
-                s = db.get_separation_energy_2n(z, int(n))
-            elif y == "S_p":
-                s = db.get_separation_energy_p(z, int(n))
-            elif y == "S_2p":
-                s = db.get_separation_energy_2p(z, int(n))
-            s_values.append(s)
+        # Physical constants (keV)
+        M_n = 8071.32   # neutron mass excess
+        M_H = 7288.97   # hydrogen mass excess
+
+        # Batch fetch all needed masses in a single query
+        # For S_n/S_2n we need masses at N and N-1/N-2
+        # For S_p/S_2p we need masses at Z and Z-1/Z-2
+        if y in ("S_n", "S_2n"):
+            # Get all masses for this Z (parent isotopes and daughters)
+            masses_df = db.conn.execute(
+                """SELECT N, mass_excess_exp_keV, mass_excess_th_keV
+                   FROM nuclides WHERE Z = ? ORDER BY N""", [z]
+            ).df()
+            # Create lookup dict: N -> mass_excess (prefer experimental)
+            mass_lookup = {}
+            for _, row in masses_df.iterrows():
+                n_val = int(row["N"])
+                if pd.notna(row["mass_excess_exp_keV"]):
+                    mass_lookup[n_val] = float(row["mass_excess_exp_keV"])
+                elif pd.notna(row["mass_excess_th_keV"]):
+                    mass_lookup[n_val] = float(row["mass_excess_th_keV"])
+
+            # Compute separation energies
+            s_values = []
+            delta_n = 1 if y == "S_n" else 2
+            for n in n_values:
+                n_int = int(n)
+                if n_int in mass_lookup and (n_int - delta_n) in mass_lookup:
+                    m_parent = mass_lookup[n_int]
+                    m_daughter = mass_lookup[n_int - delta_n]
+                    s = (m_daughter + delta_n * M_n - m_parent) / 1000.0
+                    s_values.append(s)
+                else:
+                    s_values.append(None)
+        else:
+            # S_p or S_2p: need masses for Z-1 or Z-2
+            delta_z = 1 if y == "S_p" else 2
+            # Batch fetch masses for Z and Z-delta_z
+            masses_df = db.conn.execute(
+                """SELECT Z, N, mass_excess_exp_keV, mass_excess_th_keV
+                   FROM nuclides WHERE Z IN (?, ?) ORDER BY N""",
+                [z, z - delta_z]
+            ).df()
+            # Create lookup dict: (Z, N) -> mass_excess
+            mass_lookup = {}
+            for _, row in masses_df.iterrows():
+                key = (int(row["Z"]), int(row["N"]))
+                if pd.notna(row["mass_excess_exp_keV"]):
+                    mass_lookup[key] = float(row["mass_excess_exp_keV"])
+                elif pd.notna(row["mass_excess_th_keV"]):
+                    mass_lookup[key] = float(row["mass_excess_th_keV"])
+
+            # Compute separation energies
+            s_values = []
+            for n in n_values:
+                n_int = int(n)
+                parent_key = (z, n_int)
+                daughter_key = (z - delta_z, n_int)
+                if parent_key in mass_lookup and daughter_key in mass_lookup:
+                    m_parent = mass_lookup[parent_key]
+                    m_daughter = mass_lookup[daughter_key]
+                    s = (m_daughter + delta_z * M_H - m_parent) / 1000.0
+                    s_values.append(s)
+                else:
+                    s_values.append(None)
 
         # Convert to array and mask None values
         s_array = np.array([s if s is not None else np.nan for s in s_values])
@@ -315,26 +369,50 @@ def plot_separation_energies(
         >>> fig = plot_separation_energies(db, quantity='S_2n')
         >>> fig.savefig('s2n_chart.png', dpi=150)
     """
-    df = db.query("SELECT * FROM nuclides WHERE has_experimental OR has_theoretical")
+    # Batch calculation of separation energies (avoids N+1 query pattern)
+    # Fetch all masses in a single query
+    masses_df = db.query("""
+        SELECT Z, N, mass_excess_exp_keV, mass_excess_th_keV
+        FROM nuclides WHERE has_experimental OR has_theoretical
+    """)
+
+    # Create lookup dict: (Z, N) -> mass_excess (prefer experimental)
+    mass_lookup = {}
+    for _, row in masses_df.iterrows():
+        key = (int(row["Z"]), int(row["N"]))
+        if pd.notna(row["mass_excess_exp_keV"]):
+            mass_lookup[key] = float(row["mass_excess_exp_keV"])
+        elif pd.notna(row["mass_excess_th_keV"]):
+            mass_lookup[key] = float(row["mass_excess_th_keV"])
+
+    # Physical constants (keV)
+    M_n = 8071.32   # neutron mass excess
+    M_H = 7288.97   # hydrogen mass excess
 
     # Calculate separation energies for all nuclides
     z_list = []
     n_list = []
     s_list = []
 
-    for _, row in df.iterrows():
-        z, n = int(row["Z"]), int(row["N"])
+    for (z, n), m_parent in mass_lookup.items():
         if quantity == "S_2n":
-            s = db.get_separation_energy_2n(z, n)
+            daughter_key = (z, n - 2)
+            if n < 2 or daughter_key not in mass_lookup:
+                continue
+            m_daughter = mass_lookup[daughter_key]
+            s = (m_daughter + 2 * M_n - m_parent) / 1000.0
         elif quantity == "S_2p":
-            s = db.get_separation_energy_2p(z, n)
+            daughter_key = (z - 2, n)
+            if z < 2 or daughter_key not in mass_lookup:
+                continue
+            m_daughter = mass_lookup[daughter_key]
+            s = (m_daughter + 2 * M_H - m_parent) / 1000.0
         else:
             raise ValueError(f"Unknown quantity: {quantity}")
 
-        if s is not None:
-            z_list.append(z)
-            n_list.append(n)
-            s_list.append(s)
+        z_list.append(z)
+        n_list.append(n)
+        s_list.append(s)
 
     if ax is None:
         fig, ax = plt.subplots(figsize=figsize)
