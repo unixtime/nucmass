@@ -44,16 +44,34 @@ def download_ame2020(output_path: Path | None = None) -> Path:
             print(f"Trying {url}...")
             response = requests.get(url, timeout=30, headers=headers)
             response.raise_for_status()
+
+            # Validate downloaded content
+            content = response.text
+            if len(content) < 1000:
+                print(f"  Downloaded file too small ({len(content)} bytes), skipping")
+                continue
+            if "<html" in content[:500].lower():
+                print("  Received HTML instead of data (likely blocked), skipping")
+                continue
+            # Check for expected AME2020 data markers
+            if "Mass Excess" not in content[:5000] and "mass" not in content[:5000].lower():
+                print("  Downloaded content doesn't appear to be AME2020 data, skipping")
+                continue
+
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(response.text)
-            print(f"Saved to {output_path}")
+            output_path.write_text(content)
+            print(f"Saved to {output_path} ({len(content):,} bytes)")
             return output_path
         except requests.RequestException as e:
             print(f"  Failed: {e}")
             last_error = e
             continue
 
-    raise RuntimeError(f"Could not download AME2020 from any mirror. Last error: {last_error}")
+    raise RuntimeError(
+        f"Could not download AME2020 from any mirror. Last error: {last_error}\n"
+        "Please download manually from https://www.anl.gov/phy/atomic-mass-data-resources\n"
+        f"and save to {output_path}"
+    )
 
 
 class AME2020Parser:

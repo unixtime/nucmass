@@ -116,14 +116,23 @@ def download_nubase2020(output_path: Path | None = None) -> Path:
             response = requests.get(url, timeout=30, headers=headers)
             response.raise_for_status()
 
-            # Verify it's actual data, not a Cloudflare challenge page
-            if "<html" in response.text[:500].lower():
-                print("  Blocked by Cloudflare protection")
+            # Validate downloaded content
+            content = response.text
+            if len(content) < 1000:
+                print(f"  Downloaded file too small ({len(content)} bytes), skipping")
+                continue
+            if "<html" in content[:500].lower():
+                print("  Blocked by Cloudflare protection (received HTML), skipping")
+                continue
+            # Check for expected NUBASE data markers (element symbols, mass numbers)
+            # NUBASE files contain lines like "  1 0010   1   H"
+            if not any(elem in content[:10000] for elem in ["   H", "  He", "  Li"]):
+                print("  Downloaded content doesn't appear to be NUBASE data, skipping")
                 continue
 
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(response.text)
-            print(f"Saved to {output_path}")
+            output_path.write_text(content)
+            print(f"Saved to {output_path} ({len(content):,} bytes)")
             return output_path
 
         except requests.RequestException as e:

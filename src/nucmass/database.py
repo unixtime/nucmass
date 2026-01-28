@@ -376,6 +376,11 @@ class NuclearDatabase:
         Run `python scripts/download_nuclear_data.py` first.
     """
 
+    # Class-level cache for mass excess values (shared across instances)
+    # Key: (db_path, z, n, prefer), Value: mass_excess in keV
+    _mass_cache: dict[tuple, float | None] = {}
+    _CACHE_MAX_SIZE = 2000
+
     def __init__(self, db_path: Path | str | None = None):
         """
         Initialize the database connection.
@@ -408,7 +413,20 @@ class NuclearDatabase:
         """Get the database connection, initializing if needed."""
         if self._conn is None:
             if not self.db_path.exists():
-                self._conn = init_database(self.db_path)
+                try:
+                    self._conn = init_database(self.db_path)
+                except DataFileNotFoundError as e:
+                    raise DataFileNotFoundError(
+                        str(e.filepath),
+                        f"Database initialization failed. {e.suggestion or ''}\n"
+                        "Run: python scripts/download_nuclear_data.py"
+                    ) from e
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Failed to initialize database at {self.db_path}: {e}\n"
+                        "Try removing the database file and running:\n"
+                        "  python scripts/download_nuclear_data.py"
+                    ) from e
             else:
                 self._conn = duckdb.connect(str(self.db_path))
         return self._conn
@@ -657,6 +675,8 @@ class NuclearDatabase:
         """
         Get the mass excess for a nuclide in keV.
 
+        Results are cached for performance when computing separation energies.
+
         Args:
             z: Proton number.
             n: Neutron number.
@@ -674,22 +694,39 @@ class NuclearDatabase:
         if prefer not in ("experimental", "theoretical"):
             raise ValueError(f"prefer must be 'experimental' or 'theoretical', got '{prefer}'")
 
+        # Check cache first
+        cache_key = (str(self.db_path), z, n, prefer)
+        if self._cache_enabled and cache_key in NuclearDatabase._mass_cache:
+            return NuclearDatabase._mass_cache[cache_key]
+
         nuclide = self.get_nuclide_or_none(z, n)
         if nuclide is None:
-            return None
-
-        if prefer == "experimental":
+            result = None
+        elif prefer == "experimental":
             if pd.notna(nuclide['mass_excess_exp_keV']):
-                return float(nuclide['mass_excess_exp_keV'])
+                result = float(nuclide['mass_excess_exp_keV'])
             elif pd.notna(nuclide['mass_excess_th_keV']):
-                return float(nuclide['mass_excess_th_keV'])
+                result = float(nuclide['mass_excess_th_keV'])
+            else:
+                result = None
         else:
             if pd.notna(nuclide['mass_excess_th_keV']):
-                return float(nuclide['mass_excess_th_keV'])
+                result = float(nuclide['mass_excess_th_keV'])
             elif pd.notna(nuclide['mass_excess_exp_keV']):
-                return float(nuclide['mass_excess_exp_keV'])
+                result = float(nuclide['mass_excess_exp_keV'])
+            else:
+                result = None
 
-        return None
+        # Store in cache (with size limit)
+        if self._cache_enabled:
+            if len(NuclearDatabase._mass_cache) >= self._CACHE_MAX_SIZE:
+                # Simple eviction: clear half the cache when full
+                keys_to_remove = list(NuclearDatabase._mass_cache.keys())[:self._CACHE_MAX_SIZE // 2]
+                for k in keys_to_remove:
+                    del NuclearDatabase._mass_cache[k]
+            NuclearDatabase._mass_cache[cache_key] = result
+
+        return result
 
     def get_binding_energy(self, z: int, n: int) -> float | None:
         """
@@ -1047,9 +1084,12 @@ class NuclearDatabase:
             self._conn = None
 
     def clear_cache(self) -> None:
-        """Clear any cached query results."""
-        # Reserved for future caching implementation
-        pass
+        """Clear cached mass excess values for this database."""
+        # Remove entries for this database from the class-level cache
+        db_path_str = str(self.db_path)
+        keys_to_remove = [k for k in NuclearDatabase._mass_cache if k[0] == db_path_str]
+        for k in keys_to_remove:
+            del NuclearDatabase._mass_cache[k]
 
 
 if __name__ == "__main__":
