@@ -175,8 +175,10 @@ class TestDuckDB:
         db.close()
 
     def test_database_exists(self, db):
-        """Test that database file exists."""
-        assert db.db_path.exists(), "Database file should exist"
+        """Test that database file is created when accessed."""
+        # Access the connection to trigger lazy initialization
+        _ = db.conn
+        assert db.db_path.exists(), "Database file should exist after connection"
 
     def test_summary_counts(self, db):
         """Test summary statistics."""
