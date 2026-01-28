@@ -562,3 +562,102 @@ class TestNUBASEParser:
         # Filter out rows with valid Z, N, A
         valid = df.dropna(subset=["Z", "N", "A"])
         assert (valid["A"] == valid["Z"] + valid["N"]).all()
+
+
+class TestParametricNuclides:
+    """Parametric tests covering multiple well-known nuclides beyond Fe-56."""
+
+    @pytest.fixture
+    def db(self):
+        db = NuclearDatabase()
+        yield db
+        db.close()
+
+    @pytest.mark.parametrize("z,n,name,expected_mass_range", [
+        (26, 30, "Fe-56", (-60700, -60500)),   # Iron-56: most tightly bound
+        (82, 126, "Pb-208", (-21800, -21600)), # Lead-208: doubly magic
+        (92, 146, "U-238", (47200, 47400)),    # Uranium-238: heavy actinide (positive mass excess)
+        (50, 70, "Sn-120", (-91200, -91000)),  # Tin-120: stable, even-even
+        (2, 2, "He-4", (2400, 2600)),          # Helium-4: alpha particle
+    ])
+    def test_mass_excess_known_nuclides(self, db, z, n, name, expected_mass_range):
+        """Test mass excess values for well-known nuclides."""
+        nuclide = db.get_nuclide(z, n)
+        assert nuclide is not None, f"{name} should exist in database"
+        mass_excess = nuclide.get("mass_excess_exp_keV")
+        assert mass_excess is not None, f"{name} should have experimental mass"
+        assert expected_mass_range[0] < mass_excess < expected_mass_range[1], \
+            f"{name} mass excess {mass_excess} outside expected range"
+
+    @pytest.mark.parametrize("z,n,name,is_spherical", [
+        (82, 126, "Pb-208", True),   # Doubly magic: spherical
+        (8, 8, "O-16", True),        # Doubly magic: spherical
+        (20, 20, "Ca-40", True),     # Doubly magic: spherical
+        (66, 96, "Dy-162", False),   # Deformed rare earth
+        (92, 146, "U-238", False),   # Deformed actinide
+    ])
+    def test_deformation_known_nuclides(self, db, z, n, name, is_spherical):
+        """Test deformation for nuclides with known shapes."""
+        nuclide = db.get_nuclide_or_none(z, n)
+        if nuclide is not None and pd.notna(nuclide.get("beta2")):
+            beta2 = abs(nuclide["beta2"])
+            if is_spherical:
+                assert beta2 < 0.1, f"{name} should be spherical (|β₂| < 0.1), got {beta2}"
+            else:
+                assert beta2 > 0.15, f"{name} should be deformed (|β₂| > 0.15), got {beta2}"
+
+    @pytest.mark.parametrize("z,n,name,s2n_range", [
+        (82, 126, "Pb-208", (14, 16)),   # Shell closure: higher S_2n
+        (82, 128, "Pb-210", (9, 12)),    # After shell: lower S_2n
+        (50, 82, "Sn-132", (12, 15)),    # Doubly magic: high S_2n
+        (26, 30, "Fe-56", (18, 22)),     # Stable: positive S_2n
+    ])
+    def test_s2n_known_nuclides(self, db, z, n, name, s2n_range):
+        """Test two-neutron separation energies for specific nuclides."""
+        s2n = db.get_separation_energy_2n(z, n)
+        if s2n is not None:
+            assert s2n_range[0] < s2n < s2n_range[1], \
+                f"{name} S_2n={s2n:.2f} MeV outside expected range {s2n_range}"
+
+    @pytest.mark.parametrize("z,n,name,expected_stable", [
+        (26, 30, "Fe-56", True),
+        (92, 146, "U-238", False),  # Radioactive (alpha)
+        (6, 8, "C-14", False),      # Radioactive (beta-)
+    ])
+    def test_stability_known_nuclides(self, db, z, n, name, expected_stable):
+        """Test stability flags for known nuclides (where decay data is available)."""
+        nuclide = db.get_nuclide_or_none(z, n)
+        if nuclide is not None and nuclide.get("has_decay_data") and pd.notna(nuclide.get("is_stable")):
+            assert nuclide["is_stable"] == expected_stable, \
+                f"{name} stability should be {expected_stable}"
+
+    @pytest.mark.parametrize("z,expected_isotope_count_min", [
+        (1, 3),    # Hydrogen: at least H, D, T
+        (26, 20),  # Iron: many isotopes
+        (50, 30),  # Tin: most stable isotopes of any element
+        (92, 20),  # Uranium: many isotopes
+    ])
+    def test_isotope_counts(self, db, z, expected_isotope_count_min):
+        """Test that elements have expected minimum number of isotopes."""
+        isotopes = db.get_isotopes(z)
+        assert len(isotopes) >= expected_isotope_count_min, \
+            f"Z={z} should have at least {expected_isotope_count_min} isotopes"
+
+
+class TestCLIInit:
+    """Tests for the new init CLI command."""
+
+    def test_cli_init_help(self):
+        """Test init command help."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ['init', '--help'])
+        assert result.exit_code == 0
+        assert 'Initialize' in result.output or 'rebuild' in result.output
+
+    def test_cli_init_existing(self):
+        """Test init command when database exists."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ['init'])
+        # Should not fail, just inform database exists
+        assert result.exit_code == 0
+        assert 'exists' in result.output.lower() or 'nuclides' in result.output.lower()

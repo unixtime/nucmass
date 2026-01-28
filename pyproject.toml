@@ -23,25 +23,25 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Physics",
 ]
 dependencies = [
-    "pandas>=2.0",
-    "requests>=2.31",
-    "pdfplumber>=0.10",
-    "duckdb>=1.4.4",
-    "matplotlib>=3.8",
-    "seaborn>=0.13",
-    "click>=8.0",
-    "tqdm>=4.60",
+    "pandas>=2.0,<3.0",
+    "requests>=2.31,<3.0",
+    "duckdb>=1.0,<2.0",
+    "matplotlib>=3.8,<4.0",
+    "seaborn>=0.13,<1.0",
+    "click>=8.0,<9.0",
+    "tqdm>=4.60,<5.0",
 ]
 
 [project.scripts]
 nucmass = "nucmass.cli:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "ipython"]
-notebook = ["jupyterlab>=4.0", "ipykernel>=6.0"]
-pdf = ["nbconvert[webpdf]"]
-docs = ["sphinx>=7.0", "sphinx-autobuild"]
-all = ["nucmass[dev,notebook,pdf,docs]"]
+dev = ["pytest>=8.0,<9.0", "ipython>=8.0,<9.0"]
+notebook = ["jupyterlab>=4.0,<5.0", "ipykernel>=6.0,<7.0"]
+pdf = ["nbconvert[webpdf]>=7.0,<8.0"]
+docs = ["sphinx>=7.0,<8.0", "sphinx-autobuild>=2024.0"]
+frdm2012 = ["pdfplumber>=0.10,<1.0"]  # Only needed for FRDM2012 PDF extraction
+all = ["nucmass[dev,notebook,pdf,docs,frdm2012]"]
 
 [project.urls]
 Homepage = "https://github.com/unixtime/nucmass"

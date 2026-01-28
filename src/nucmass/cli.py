@@ -19,8 +19,8 @@ from typing import Optional
 import click
 import pandas as pd
 
-from .database import NuclearDatabase
-from .exceptions import NuclideNotFoundError, InvalidNuclideError
+from .database import NuclearDatabase, init_database, DB_PATH
+from .exceptions import NuclideNotFoundError, InvalidNuclideError, DataFileNotFoundError
 
 
 # Element symbols for display
@@ -80,6 +80,64 @@ def cli():
         nucmass export -o data.csv  # Export all nuclides to CSV
     """
     pass
+
+
+@cli.command()
+@click.option('--rebuild', is_flag=True, help='Force rebuild even if database exists')
+@click.option('--db-path', type=click.Path(), default=None, help='Custom database path')
+def init(rebuild: bool, db_path: str | None):
+    """
+    Initialize or rebuild the nuclear mass database.
+
+    This command creates the DuckDB database from the source CSV files.
+    The database is created automatically on first use, but this command
+    is useful for rebuilding after data updates or troubleshooting.
+
+    Examples:
+
+        nucmass init              # Initialize if not exists
+
+        nucmass init --rebuild    # Force rebuild
+    """
+    from pathlib import Path
+
+    if db_path:
+        target_path = Path(db_path)
+    else:
+        target_path = DB_PATH
+
+    if target_path.exists() and not rebuild:
+        click.echo(f"Database already exists at {target_path}")
+        click.echo("Use --rebuild to force recreation")
+
+        # Show summary
+        db = NuclearDatabase(target_path)
+        stats = db.summary()
+        click.echo(f"\nCurrent database contains:")
+        click.echo(f"  {stats['total_nuclides']:,} nuclides")
+        click.echo(f"  {stats['ame2020_count']:,} from AME2020")
+        click.echo(f"  {stats['frdm2012_count']:,} from FRDM2012")
+        if 'nubase2020_count' in stats:
+            click.echo(f"  {stats['nubase2020_count']:,} from NUBASE2020")
+        return
+
+    if rebuild and target_path.exists():
+        click.echo(f"Removing existing database: {target_path}")
+        target_path.unlink()
+
+    click.echo(f"Initializing database at {target_path}...")
+    try:
+        conn = init_database(target_path, show_progress=True)
+        conn.close()
+        click.echo("\nDatabase initialized successfully!")
+    except DataFileNotFoundError as e:
+        click.echo(f"\nError: {e}", err=True)
+        click.echo("\nTo download the required data files, run:", err=True)
+        click.echo("  python scripts/download_nuclear_data.py", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"\nError initializing database: {e}", err=True)
+        sys.exit(1)
 
 
 @cli.command()
