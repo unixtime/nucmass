@@ -6,7 +6,7 @@ decay data from three authoritative sources:
 
 - **AME2020**: Atomic Mass Evaluation 2020 (experimental masses for 3,558 nuclides)
 - **FRDM2012**: Finite Range Droplet Model (theoretical masses for 9,318 nuclides)
-- **NUBASE2020**: Nuclear properties evaluation (half-lives, decay modes for 5,843 nuclides)
+- **NUBASE2020**: Nuclear properties evaluation (half-lives, decay modes for 3,558 nuclides + 2,285 isomers)
 
 Features
 --------
