@@ -1,7 +1,7 @@
 """
 NUBASE (Nuclear Properties Evaluation) parser.
 
-Parses nuclear decay properties from NUBASE tables (2012 or 2020 format).
+Parses nuclear decay properties from NUBASE2020 tables.
 Reference:
     NUBASE2020: Kondev et al., Chinese Physics C 45, 030001 (2021)
     NUBASE2012: Audi et al., Chinese Physics C 36, 1157 (2012)
@@ -176,7 +176,7 @@ def parse_half_life(hl_str: str) -> tuple[str, float | None]:
 
 class NUBASEParser:
     """
-    Parser for NUBASE format files (2012 or 2020).
+    Parser for NUBASE2020 format files.
 
     The file uses fixed-width columns with nuclear properties data.
     No header lines in the data file.

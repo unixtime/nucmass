@@ -22,9 +22,9 @@ FRDM2012 Extractor
 NUBASE Parser
 -------------
 
-The ``NUBASEParser`` class parses nuclear properties from NUBASE evaluation data files
-(supports 2012, 2016, and 2020 formats). It provides access to half-lives, decay modes,
-spin/parity, and isomeric states for 5,843+ nuclides.
+The ``NUBASEParser`` class parses nuclear properties from NUBASE2020 evaluation data files.
+It provides access to half-lives, decay modes, spin/parity, and isomeric states for
+3,558 nuclides (plus 2,285 isomeric states, totaling 5,843 entries).
 
 .. autoclass:: nucmass.NUBASEParser
    :members:

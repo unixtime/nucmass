@@ -28,9 +28,9 @@ New Features
   - Half-lives with automatic unit conversion to seconds (20+ time units supported)
   - Spin/parity values
   - Decay modes (α, β⁻, β⁺, EC, IT, SF, etc.)
-  - Isomeric states with proper ZZZS encoding
+  - Isomeric states with proper ZZZS encoding (3,558 nuclides + 2,285 isomers)
   - Discovery year
-  - Supports NUBASE 2012, 2016, and 2020 file formats
+  - Optimized for NUBASE2020 format
   - Methods: ``get_stable()``, ``get_by_decay_mode()``, ``get_by_half_life()``,
     ``get_isomers()``, ``to_dataframe()``
 
