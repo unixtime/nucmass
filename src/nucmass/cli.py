@@ -490,6 +490,125 @@ def qvalue(z: int, n: int, z_final: int, n_final: int, ejectile_z: int, ejectile
     click.echo()
 
 
+@cli.command()
+@click.argument('input_file', type=click.Path(exists=True))
+@click.option('--output', '-o', type=click.Path(), help='Output file path (default: stdout)')
+@click.option('--format', 'fmt', type=click.Choice(['csv', 'json', 'table']),
+              default='csv', help='Output format')
+@click.option('--sep-energies', is_flag=True, help='Include separation energies')
+def batch(input_file: str, output: str | None, fmt: str, sep_energies: bool):
+    """
+    Query multiple nuclides from an input file.
+
+    The input file should have one nuclide per line, with Z and N
+    separated by whitespace or comma. Lines starting with # are ignored.
+
+    Examples:
+
+        nucmass batch nuclides.txt -o results.csv
+
+        nucmass batch nuclides.txt --sep-energies --format json
+
+    Input file format:
+
+        # Z N (comments ignored)
+        26 30
+        82 126
+        92,146
+    """
+    import csv
+    import json
+    from pathlib import Path
+
+    db = NuclearDatabase()
+    results = []
+    errors = []
+
+    # Parse input file
+    with open(input_file, 'r') as f:
+        for line_num, line in enumerate(f, 1):
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+
+            # Parse Z, N (supports space, tab, or comma separator)
+            parts = line.replace(',', ' ').split()
+            if len(parts) < 2:
+                errors.append(f"Line {line_num}: Invalid format '{line}'")
+                continue
+
+            try:
+                z, n = int(parts[0]), int(parts[1])
+            except ValueError:
+                errors.append(f"Line {line_num}: Invalid numbers '{line}'")
+                continue
+
+            # Query the nuclide
+            nuclide = db.get_nuclide_or_none(z, n)
+            if nuclide is None:
+                errors.append(f"Line {line_num}: Nuclide Z={z}, N={n} not found")
+                continue
+
+            # Build result dict
+            a = z + n
+            result = {
+                'Z': z,
+                'N': n,
+                'A': a,
+                'Element': get_element_symbol(z),
+                'Name': format_nuclide_name(z, a),
+                'mass_excess_exp_keV': nuclide.get('mass_excess_exp_keV'),
+                'mass_excess_th_keV': nuclide.get('mass_excess_th_keV'),
+                'beta2': nuclide.get('beta2'),
+            }
+
+            # Add separation energies if requested
+            if sep_energies:
+                result['S_n_MeV'] = db.get_separation_energy_n(z, n)
+                result['S_p_MeV'] = db.get_separation_energy_p(z, n)
+                result['S_2n_MeV'] = db.get_separation_energy_2n(z, n)
+                result['S_2p_MeV'] = db.get_separation_energy_2p(z, n)
+                result['S_alpha_MeV'] = db.get_separation_energy_alpha(z, n)
+
+            results.append(result)
+
+    # Report errors
+    if errors:
+        click.echo(f"Warnings ({len(errors)} issues):", err=True)
+        for err in errors[:5]:  # Show first 5 errors
+            click.echo(f"  {err}", err=True)
+        if len(errors) > 5:
+            click.echo(f"  ... and {len(errors) - 5} more", err=True)
+
+    if not results:
+        click.echo("No valid nuclides found in input file", err=True)
+        sys.exit(1)
+
+    click.echo(f"Processed {len(results)} nuclides", err=True)
+
+    # Format output
+    if fmt == 'json':
+        # Convert NaN to None for JSON
+        for r in results:
+            for k, v in r.items():
+                if pd.isna(v):
+                    r[k] = None
+        output_str = json.dumps(results, indent=2)
+    elif fmt == 'csv':
+        df = pd.DataFrame(results)
+        output_str = df.to_csv(index=False)
+    else:  # table
+        df = pd.DataFrame(results)
+        output_str = df.to_string(index=False, na_rep='---')
+
+    # Write output
+    if output:
+        Path(output).write_text(output_str)
+        click.echo(f"Results saved to {output}", err=True)
+    else:
+        click.echo(output_str)
+
+
 def main():
     """Entry point for the CLI."""
     cli()

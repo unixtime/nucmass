@@ -29,12 +29,17 @@ Data Columns:
 """
 
 import re
+import time
 from pathlib import Path
 
 import pandas as pd
 import requests
 
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
+
+# Rate limiting: minimum seconds between requests to same domain
+_REQUEST_DELAY = 1.0
+_last_request_time: dict[str, float] = {}
 
 # Pre-compiled regex patterns for performance (avoid recompilation in loops)
 _HALF_LIFE_PATTERN = re.compile(r"([0-9.eE+\-]+)\s*(?:\([^)]*\))?\s*([a-zA-Zμ]+)")
@@ -112,8 +117,17 @@ def download_nubase2020(output_path: Path | None = None) -> Path:
     last_error = None
     for url in NUBASE2020_MIRRORS:
         try:
+            # Rate limiting: respect server by waiting between requests
+            from urllib.parse import urlparse
+            domain = urlparse(url).netloc
+            if domain in _last_request_time:
+                elapsed = time.time() - _last_request_time[domain]
+                if elapsed < _REQUEST_DELAY:
+                    time.sleep(_REQUEST_DELAY - elapsed)
+
             print(f"Trying {url}...")
             response = requests.get(url, timeout=30, headers=headers)
+            _last_request_time[domain] = time.time()
             response.raise_for_status()
 
             # Validate downloaded content

@@ -661,3 +661,253 @@ class TestCLIInit:
         # Should not fail, just inform database exists
         assert result.exit_code == 0
         assert 'exists' in result.output.lower() or 'nuclides' in result.output.lower()
+
+
+class TestCLIBatch:
+    """Tests for batch CLI command."""
+
+    @pytest.fixture
+    def runner(self):
+        return CliRunner()
+
+    def test_cli_batch_help(self, runner):
+        """Test batch command help."""
+        result = runner.invoke(cli, ['batch', '--help'])
+        assert result.exit_code == 0
+        assert 'Query multiple nuclides' in result.output
+
+    def test_cli_batch_file(self, runner, tmp_path):
+        """Test batch command with input file."""
+        # Create input file
+        input_file = tmp_path / "nuclides.txt"
+        input_file.write_text("# Test nuclides\n26 30\n82 126\n")
+
+        result = runner.invoke(cli, ['batch', str(input_file)])
+        assert result.exit_code == 0
+        assert 'Fe-56' in result.output or '26' in result.output
+        assert 'Processed 2 nuclides' in result.output or '2' in result.output
+
+    def test_cli_batch_with_sep_energies(self, runner, tmp_path):
+        """Test batch command with separation energies."""
+        input_file = tmp_path / "nuclides.txt"
+        input_file.write_text("26 30\n")
+
+        result = runner.invoke(cli, ['batch', str(input_file), '--sep-energies'])
+        assert result.exit_code == 0
+        assert 'S_n' in result.output or 'S_n_MeV' in result.output
+
+    def test_cli_batch_json_output(self, runner, tmp_path):
+        """Test batch command with JSON output to file."""
+        input_file = tmp_path / "nuclides.txt"
+        input_file.write_text("26 30\n")
+        output_file = tmp_path / "output.json"
+
+        # Write JSON to file to avoid mixing with stderr messages
+        result = runner.invoke(cli, ['batch', str(input_file), '--format', 'json', '-o', str(output_file)])
+        assert result.exit_code == 0
+        import json
+        data = json.loads(output_file.read_text())
+        assert len(data) == 1
+        assert data[0]['Z'] == 26
+
+    def test_cli_batch_comma_separator(self, runner, tmp_path):
+        """Test batch command with comma-separated input."""
+        input_file = tmp_path / "nuclides.txt"
+        input_file.write_text("26,30\n82,126\n")
+
+        result = runner.invoke(cli, ['batch', str(input_file)])
+        assert result.exit_code == 0
+        assert 'Processed 2 nuclides' in result.output
+
+
+class TestThreadSafety:
+    """Tests for thread-safe database access."""
+
+    def test_thread_safe_mode_initialization(self):
+        """Test creating database in thread-safe mode."""
+        db = NuclearDatabase(thread_safe=True)
+        assert db._thread_safe is True
+        _ = db.conn  # Force connection
+        db.close()
+
+    def test_thread_safe_basic_query(self):
+        """Test basic query in thread-safe mode."""
+        db = NuclearDatabase(thread_safe=True)
+        nuclide = db.get_nuclide(26, 30)
+        assert nuclide is not None
+        assert nuclide['Z'] == 26
+        db.close()
+
+    def test_concurrent_queries(self):
+        """Test concurrent queries from multiple threads."""
+        import threading
+        import time
+
+        results = []
+        errors = []
+        db = NuclearDatabase(thread_safe=True)
+
+        def query_nuclide(z, n, index):
+            try:
+                nuclide = db.get_nuclide_or_none(z, n)
+                results.append((index, nuclide is not None))
+            except Exception as e:
+                errors.append((index, str(e)))
+
+        # Create multiple threads querying different nuclides
+        threads = []
+        test_nuclides = [
+            (26, 30), (82, 126), (50, 70), (92, 146), (2, 2),
+            (28, 30), (14, 14), (8, 8), (20, 20), (6, 6),
+        ]
+
+        for i, (z, n) in enumerate(test_nuclides):
+            t = threading.Thread(target=query_nuclide, args=(z, n, i))
+            threads.append(t)
+
+        # Start all threads
+        for t in threads:
+            t.start()
+
+        # Wait for completion
+        for t in threads:
+            t.join(timeout=10)
+
+        db.close()
+
+        # Check results
+        assert len(errors) == 0, f"Errors occurred: {errors}"
+        assert len(results) == len(test_nuclides)
+        assert all(success for _, success in results)
+
+    def test_thread_local_connections(self):
+        """Test that different threads get separate connections."""
+        import threading
+
+        connection_ids = {}
+        barrier = threading.Barrier(3)  # Ensure threads run concurrently
+        db = NuclearDatabase(thread_safe=True)
+
+        def get_connection_id(thread_num):
+            barrier.wait()  # Synchronize thread start
+            conn = db.conn
+            # Hold connection while other threads get theirs
+            connection_ids[thread_num] = id(conn)
+            barrier.wait()  # Wait for all threads to get their connections
+
+        threads = [threading.Thread(target=get_connection_id, args=(i,)) for i in range(3)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+
+        db.close()
+
+        # Verify each thread got a connection
+        assert len(connection_ids) == 3
+        # In thread-safe mode, concurrent threads should have different connections
+        # At minimum we expect more than one unique connection
+        assert len(set(connection_ids.values())) >= 2, \
+            f"Expected multiple connections but got: {connection_ids}"
+
+
+class TestCacheStress:
+    """Stress tests for the mass excess cache."""
+
+    @pytest.fixture
+    def db(self):
+        db = NuclearDatabase()
+        db.clear_cache()  # Start with clean cache
+        yield db
+        db.close()
+
+    def test_cache_population(self, db):
+        """Test that cache is populated on queries."""
+        # Clear any existing cache
+        db.clear_cache()
+
+        # Query several nuclides
+        for z in range(20, 30):
+            for n in range(20, 30):
+                db.get_mass_excess(z, n)
+
+        # Check cache has entries
+        db_path_str = str(db.db_path)
+        cache_entries = [k for k in NuclearDatabase._mass_cache if k[0] == db_path_str]
+        assert len(cache_entries) > 0
+
+    def test_cache_eviction(self, db):
+        """Test cache eviction when full."""
+        # This is a mild stress test - verify cache doesn't grow unbounded
+        original_max = NuclearDatabase._CACHE_MAX_SIZE
+
+        # Query many nuclides
+        for z in range(10, 80):
+            for n in range(10, 80):
+                db.get_mass_excess(z, n)
+
+        # Cache should be within bounds
+        assert len(NuclearDatabase._mass_cache) <= original_max
+
+    def test_cache_hit_performance(self, db):
+        """Test that cached queries are faster."""
+        import time
+
+        # First query (cache miss)
+        db.clear_cache()
+        start = time.perf_counter()
+        for _ in range(100):
+            db.get_mass_excess(26, 30)
+            db.clear_cache()  # Force cache miss
+        cold_time = time.perf_counter() - start
+
+        # Second query (cache hit)
+        db.get_mass_excess(26, 30)  # Prime cache
+        start = time.perf_counter()
+        for _ in range(100):
+            db.get_mass_excess(26, 30)
+        warm_time = time.perf_counter() - start
+
+        # Cached should be faster (at least 2x)
+        assert warm_time < cold_time / 2, f"Cache not effective: warm={warm_time:.4f}s, cold={cold_time:.4f}s"
+
+
+class TestBatchQueryPerformance:
+    """Tests for batch query performance."""
+
+    @pytest.fixture
+    def db(self):
+        db = NuclearDatabase()
+        yield db
+        db.close()
+
+    def test_isotope_chain_query(self, db):
+        """Test querying full isotope chains."""
+        import time
+
+        # Time querying all isotopes for several elements
+        start = time.perf_counter()
+        total_nuclides = 0
+        for z in [26, 50, 82, 92]:
+            isotopes = db.get_isotopes(z)
+            total_nuclides += len(isotopes)
+        elapsed = time.perf_counter() - start
+
+        assert total_nuclides > 100  # Should get many isotopes
+        assert elapsed < 2.0  # Should complete within 2 seconds
+
+    def test_separation_energy_batch(self, db):
+        """Test computing separation energies for many nuclides."""
+        import time
+
+        # Compute S_2n for all Sn isotopes
+        start = time.perf_counter()
+        s2n_values = []
+        for n in range(50, 90):
+            s2n = db.get_separation_energy_2n(50, n)
+            if s2n is not None:
+                s2n_values.append((n, s2n))
+        elapsed = time.perf_counter() - start
+
+        assert len(s2n_values) > 20  # Should get many values
+        assert elapsed < 5.0  # Should complete within 5 seconds

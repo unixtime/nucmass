@@ -6,10 +6,15 @@ Reference: Wang et al., Chinese Physics C 45, 030003 (2021)
 """
 
 import re
+import time
 from pathlib import Path
 
 import pandas as pd
 import requests
+
+# Rate limiting: minimum seconds between requests to same domain
+_REQUEST_DELAY = 1.0
+_last_request_time: dict[str, float] = {}
 
 AME2020_URL = "https://www.anl.gov/sites/www/files/2021-03/mass.mas20.txt"
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
@@ -41,8 +46,17 @@ def download_ame2020(output_path: Path | None = None) -> Path:
     last_error = None
     for url in AME2020_MIRRORS:
         try:
+            # Rate limiting: respect server by waiting between requests
+            from urllib.parse import urlparse
+            domain = urlparse(url).netloc
+            if domain in _last_request_time:
+                elapsed = time.time() - _last_request_time[domain]
+                if elapsed < _REQUEST_DELAY:
+                    time.sleep(_REQUEST_DELAY - elapsed)
+
             print(f"Trying {url}...")
             response = requests.get(url, timeout=30, headers=headers)
+            _last_request_time[domain] = time.time()
             response.raise_for_status()
 
             # Validate downloaded content

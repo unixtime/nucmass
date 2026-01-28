@@ -29,6 +29,7 @@ References:
 
 from __future__ import annotations
 
+import threading
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -380,20 +381,27 @@ class NuclearDatabase:
     # Key: (db_path, z, n, prefer), Value: mass_excess in keV
     _mass_cache: dict[tuple, float | None] = {}
     _CACHE_MAX_SIZE = 2000
+    _cache_lock = threading.Lock()
 
-    def __init__(self, db_path: Path | str | None = None):
+    # Thread-local storage for connections (enables thread-safe usage)
+    _thread_local = threading.local()
+
+    def __init__(self, db_path: Path | str | None = None, thread_safe: bool = False):
         """
         Initialize the database connection.
 
         Args:
             db_path: Path to the DuckDB database file. If None, uses the
                 default location (data/nuclear_masses.duckdb).
+            thread_safe: If True, use thread-local connections for safe
+                multi-threaded access. Each thread gets its own connection.
         """
         if db_path is None:
             db_path = DB_PATH
         self.db_path = Path(db_path)
         self._conn: duckdb.DuckDBPyConnection | None = None
         self._cache_enabled = True
+        self._thread_safe = thread_safe
 
     def __enter__(self) -> "NuclearDatabase":
         """Enter context manager - returns self."""
@@ -410,26 +418,43 @@ class NuclearDatabase:
 
     @property
     def conn(self) -> duckdb.DuckDBPyConnection:
-        """Get the database connection, initializing if needed."""
-        if self._conn is None:
-            if not self.db_path.exists():
-                try:
-                    self._conn = init_database(self.db_path)
-                except DataFileNotFoundError as e:
-                    raise DataFileNotFoundError(
-                        str(e.filepath),
-                        f"Database initialization failed. {e.suggestion or ''}\n"
-                        "Run: python scripts/download_nuclear_data.py"
-                    ) from e
-                except Exception as e:
-                    raise RuntimeError(
-                        f"Failed to initialize database at {self.db_path}: {e}\n"
-                        "Try removing the database file and running:\n"
-                        "  python scripts/download_nuclear_data.py"
-                    ) from e
-            else:
-                self._conn = duckdb.connect(str(self.db_path))
-        return self._conn
+        """Get the database connection, initializing if needed.
+
+        In thread-safe mode, each thread gets its own connection via
+        thread-local storage. This is essential for multi-threaded applications.
+        """
+        if self._thread_safe:
+            # Thread-safe mode: use thread-local connections
+            thread_conn = getattr(self._thread_local, 'conn', None)
+            if thread_conn is None:
+                thread_conn = self._create_connection()
+                self._thread_local.conn = thread_conn
+            return thread_conn
+        else:
+            # Standard mode: single connection
+            if self._conn is None:
+                self._conn = self._create_connection()
+            return self._conn
+
+    def _create_connection(self) -> duckdb.DuckDBPyConnection:
+        """Create a new database connection, initializing DB if needed."""
+        if not self.db_path.exists():
+            try:
+                return init_database(self.db_path)
+            except DataFileNotFoundError as e:
+                raise DataFileNotFoundError(
+                    str(e.filepath),
+                    f"Database initialization failed. {e.suggestion or ''}\n"
+                    "Run: python scripts/download_nuclear_data.py"
+                ) from e
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to initialize database at {self.db_path}: {e}\n"
+                    "Try removing the database file and running:\n"
+                    "  python scripts/download_nuclear_data.py"
+                ) from e
+        else:
+            return duckdb.connect(str(self.db_path))
 
     def query(self, sql: str) -> pd.DataFrame:
         """
@@ -694,10 +719,12 @@ class NuclearDatabase:
         if prefer not in ("experimental", "theoretical"):
             raise ValueError(f"prefer must be 'experimental' or 'theoretical', got '{prefer}'")
 
-        # Check cache first
+        # Check cache first (thread-safe read)
         cache_key = (str(self.db_path), z, n, prefer)
-        if self._cache_enabled and cache_key in NuclearDatabase._mass_cache:
-            return NuclearDatabase._mass_cache[cache_key]
+        if self._cache_enabled:
+            with NuclearDatabase._cache_lock:
+                if cache_key in NuclearDatabase._mass_cache:
+                    return NuclearDatabase._mass_cache[cache_key]
 
         nuclide = self.get_nuclide_or_none(z, n)
         if nuclide is None:
@@ -717,14 +744,15 @@ class NuclearDatabase:
             else:
                 result = None
 
-        # Store in cache (with size limit)
+        # Store in cache (thread-safe write with size limit)
         if self._cache_enabled:
-            if len(NuclearDatabase._mass_cache) >= self._CACHE_MAX_SIZE:
-                # Simple eviction: clear half the cache when full
-                keys_to_remove = list(NuclearDatabase._mass_cache.keys())[:self._CACHE_MAX_SIZE // 2]
-                for k in keys_to_remove:
-                    del NuclearDatabase._mass_cache[k]
-            NuclearDatabase._mass_cache[cache_key] = result
+            with NuclearDatabase._cache_lock:
+                if len(NuclearDatabase._mass_cache) >= self._CACHE_MAX_SIZE:
+                    # Simple eviction: clear half the cache when full
+                    keys_to_remove = list(NuclearDatabase._mass_cache.keys())[:self._CACHE_MAX_SIZE // 2]
+                    for k in keys_to_remove:
+                        del NuclearDatabase._mass_cache[k]
+                NuclearDatabase._mass_cache[cache_key] = result
 
         return result
 
@@ -1078,18 +1106,28 @@ class NuclearDatabase:
 
         Call this when you're done with the database to release resources.
         The connection will be automatically reopened if needed.
+
+        In thread-safe mode, only closes the current thread's connection.
         """
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
+        if self._thread_safe:
+            # Close thread-local connection
+            thread_conn = getattr(self._thread_local, 'conn', None)
+            if thread_conn is not None:
+                thread_conn.close()
+                self._thread_local.conn = None
+        else:
+            # Close single shared connection
+            if self._conn is not None:
+                self._conn.close()
+                self._conn = None
 
     def clear_cache(self) -> None:
-        """Clear cached mass excess values for this database."""
-        # Remove entries for this database from the class-level cache
+        """Clear cached mass excess values for this database (thread-safe)."""
         db_path_str = str(self.db_path)
-        keys_to_remove = [k for k in NuclearDatabase._mass_cache if k[0] == db_path_str]
-        for k in keys_to_remove:
-            del NuclearDatabase._mass_cache[k]
+        with NuclearDatabase._cache_lock:
+            keys_to_remove = [k for k in NuclearDatabase._mass_cache if k[0] == db_path_str]
+            for k in keys_to_remove:
+                del NuclearDatabase._mass_cache[k]
 
 
 if __name__ == "__main__":
