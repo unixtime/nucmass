@@ -1,0 +1,55 @@
+[project]
+name = "nucmass"
+version = "1.0.0"
+description = "Nuclear mass data toolkit for researchers - Parse AME2020 experimental and FRDM2012 theoretical mass tables"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.12"
+keywords = [
+    "nuclear physics",
+    "atomic mass",
+    "AME2020",
+    "FRDM2012",
+    "mass evaluation",
+    "nuclear data",
+    "astrophysics",
+    "r-process",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+    "pandas>=2.0",
+    "requests>=2.31",
+    "pdfplumber>=0.10",
+    "duckdb>=1.4.4",
+    "matplotlib>=3.8",
+    "seaborn>=0.13",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ipython"]
+notebook = ["jupyterlab>=4.0", "ipykernel>=6.0"]
+pdf = ["nbconvert[webpdf]"]
+all = ["nucmass[dev,notebook,pdf]"]
+
+[project.urls]
+Homepage = "https://github.com/unixtime/nucmass"
+Documentation = "https://github.com/unixtime/nucmass#readme"
+Repository = "https://github.com/unixtime/nucmass"
+Issues = "https://github.com/unixtime/nucmass/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nucmass"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
