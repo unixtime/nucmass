@@ -35,10 +35,14 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-DATA_DIR = Path(__file__).parent.parent.parent / "data"
+from .config import Config, get_logger
 
-# Rate limiting: minimum seconds between requests to same domain
-_REQUEST_DELAY = 1.0
+# Module logger
+logger = get_logger("nubase2020")
+
+DATA_DIR = Config.DATA_DIR
+
+# Rate limiting from config
 _last_request_time: dict[str, float] = {}
 
 # Pre-compiled regex patterns for performance (avoid recompilation in loops)
@@ -103,7 +107,7 @@ def download_nubase2020(output_path: Path | None = None) -> Path:
         output_path = DATA_DIR / "nubase.mas20.txt"
 
     if output_path.exists():
-        print(f"File already exists: {output_path}")
+        logger.info(f"File already exists: {output_path}")
         return output_path
 
     headers = {
@@ -122,35 +126,35 @@ def download_nubase2020(output_path: Path | None = None) -> Path:
             domain = urlparse(url).netloc
             if domain in _last_request_time:
                 elapsed = time.time() - _last_request_time[domain]
-                if elapsed < _REQUEST_DELAY:
-                    time.sleep(_REQUEST_DELAY - elapsed)
+                if elapsed < Config.REQUEST_DELAY:
+                    time.sleep(Config.REQUEST_DELAY - elapsed)
 
-            print(f"Trying {url}...")
-            response = requests.get(url, timeout=30, headers=headers)
+            logger.info(f"Trying {url}...")
+            response = requests.get(url, timeout=Config.DOWNLOAD_TIMEOUT, headers=headers)
             _last_request_time[domain] = time.time()
             response.raise_for_status()
 
             # Validate downloaded content
             content = response.text
             if len(content) < 1000:
-                print(f"  Downloaded file too small ({len(content)} bytes), skipping")
+                logger.warning(f"Downloaded file too small ({len(content)} bytes), skipping")
                 continue
             if "<html" in content[:500].lower():
-                print("  Blocked by Cloudflare protection (received HTML), skipping")
+                logger.warning("Blocked by Cloudflare protection (received HTML), skipping")
                 continue
             # Check for expected NUBASE data markers (element symbols, mass numbers)
             # NUBASE files contain lines like "  1 0010   1   H"
             if not any(elem in content[:10000] for elem in ["   H", "  He", "  Li"]):
-                print("  Downloaded content doesn't appear to be NUBASE data, skipping")
+                logger.warning("Downloaded content doesn't appear to be NUBASE data, skipping")
                 continue
 
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(content)
-            print(f"Saved to {output_path} ({len(content):,} bytes)")
+            logger.info(f"Saved to {output_path} ({len(content):,} bytes)")
             return output_path
 
         except requests.RequestException as e:
-            print(f"  Failed: {e}")
+            logger.warning(f"Failed to download from {url}: {e}")
             last_error = e
             continue
 
@@ -257,13 +261,33 @@ class NUBASEParser:
 
         # Read file and parse each line
         rows = []
+        total_lines = 0
+        short_lines = 0
+        parse_failures = 0
         with open(self.filepath, 'r') as f:
-            for line in f:
+            for line_num, line in enumerate(f, 1):
+                total_lines += 1
                 if len(line) < 50:  # Skip short lines
+                    short_lines += 1
                     continue
                 row = self._parse_line(line)
                 if row is not None:
                     rows.append(row)
+                else:
+                    parse_failures += 1
+                    # Log only at debug level to avoid spam, but warn if unusual
+                    logger.debug(f"Line {line_num} failed to parse: {line[:60].strip()!r}...")
+
+        # Log parsing statistics
+        logger.info(
+            f"Parsed {len(rows)} nuclides from {total_lines} lines "
+            f"(skipped {short_lines} short, {parse_failures} unparseable)"
+        )
+        if parse_failures > 100:
+            logger.warning(
+                f"High number of parse failures ({parse_failures}). "
+                "Consider checking file format compatibility."
+            )
 
         # Create DataFrame
         df = pd.DataFrame(rows)
@@ -411,7 +435,7 @@ class NUBASEParser:
         """Export parsed data to CSV."""
         df = self.parse()
         df.to_csv(output_path, index=False)
-        print(f"Exported {len(df)} nuclides/isomers to {output_path}")
+        logger.info(f"Exported {len(df)} nuclides/isomers to {output_path}")
 
     def to_dataframe(self) -> pd.DataFrame:
         """
@@ -559,6 +583,9 @@ NUBASE2020Parser = NUBASEParser
 
 
 if __name__ == "__main__":
+    from .config import setup_logging
+    setup_logging("INFO")
+
     # Example usage - try different file locations
     possible_paths = [
         DATA_DIR / "nubase.mas20.txt",
@@ -573,35 +600,35 @@ if __name__ == "__main__":
             break
 
     if filepath is None:
-        print("No NUBASE file found. Download from:")
-        print("https://www.anl.gov/phy/atomic-mass-data-resources")
+        logger.error("No NUBASE file found. Download from:")
+        logger.error("https://www.anl.gov/phy/atomic-mass-data-resources")
         exit(1)
 
-    print(f"Using: {filepath}")
+    logger.info(f"Using: {filepath}")
     parser = NUBASEParser(filepath)
 
     try:
         df = parser.parse()
-        print(f"\nParsed {len(df)} nuclides/isomers")
+        logger.info(f"Parsed {len(df)} nuclides/isomers")
 
         # Summary statistics
         ground_states = df[df["isomer"] == ""]
         isomers = df[df["isomer"] != ""]
         stable = df[df["is_stable"]]
 
-        print(f"Ground states: {len(ground_states)}")
-        print(f"Isomeric states: {len(isomers)}")
-        print(f"Stable nuclides: {len(stable)}")
+        logger.info(f"Ground states: {len(ground_states)}")
+        logger.info(f"Isomeric states: {len(isomers)}")
+        logger.info(f"Stable nuclides: {len(stable)}")
 
-        print(f"\nSample data (Fe-56, Z=26, N=30):")
+        logger.info(f"Sample data (Fe-56, Z=26, N=30):")
         fe56 = parser.get_nuclide(z=26, n=30)
         if fe56 is not None:
-            print(fe56)
+            logger.info(str(fe56))
         else:
-            print("Fe-56 not found")
+            logger.warning("Fe-56 not found")
 
         # Export to CSV
         parser.to_csv(DATA_DIR / "nubase_properties.csv")
 
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(f"Error: {e}")

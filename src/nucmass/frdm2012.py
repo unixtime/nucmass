@@ -19,6 +19,11 @@ from pathlib import Path
 
 import pandas as pd
 
+from .config import Config, get_logger
+
+# Module logger
+logger = get_logger("frdm2012")
+
 try:
     import pdfplumber
 except ImportError:
@@ -29,7 +34,7 @@ try:
 except ImportError:
     tqdm = None
 
-DATA_DIR = Path(__file__).parent.parent.parent / "data"
+DATA_DIR = Config.DATA_DIR
 
 # Expected columns based on FRDM2012 arXiv PDF table (page 68+)
 # Table has: N A ε2 ε3 ε4 ε6 β2 β3 β4 β6 E_s+p E_mic E_bind M_th M_exp σ_exp E_mic_FL M_th_FL
@@ -86,7 +91,7 @@ class FRDM2012Extractor:
         """
         with pdfplumber.open(self.pdf_path) as pdf:
             if page_num < 1 or page_num > len(pdf.pages):
-                print(f"Invalid page. PDF has {len(pdf.pages)} pages.")
+                logger.error(f"Invalid page. PDF has {len(pdf.pages)} pages.")
                 return
 
             page = pdf.pages[page_num - 1]  # Convert to 0-indexed
@@ -94,19 +99,19 @@ class FRDM2012Extractor:
             # Try table extraction
             tables = page.extract_tables()
             if tables:
-                print(f"Found {len(tables)} table(s) on page {page_num}")
+                logger.info(f"Found {len(tables)} table(s) on page {page_num}")
                 for i, table in enumerate(tables):
-                    print(f"\nTable {i+1} ({len(table)} rows):")
+                    logger.info(f"Table {i+1} ({len(table)} rows):")
                     for row in table[:show_lines]:
-                        print(row)
+                        logger.info(str(row))
             else:
                 # Fall back to text extraction
-                print(f"No tables detected. Raw text from page {page_num}:")
+                logger.info(f"No tables detected. Raw text from page {page_num}:")
                 text = page.extract_text()
                 if text:
                     lines = text.split("\n")
                     for line in lines[:show_lines]:
-                        print(line)
+                        logger.info(line)
 
     def get_page_count(self) -> int:
         """Return total number of pages in PDF."""
@@ -186,7 +191,7 @@ class FRDM2012Extractor:
                     total=end_page - start_page + 1,
                 )
             else:
-                print(f"Extracting pages {start_page}-{end_page} of {total_pages}...")
+                logger.info(f"Extracting pages {start_page}-{end_page} of {total_pages}...")
 
             for page_num in page_range:
                 page = pdf.pages[page_num]
@@ -202,7 +207,7 @@ class FRDM2012Extractor:
                             continue
                         all_rows.append(row)
 
-        print(f"Extracted {len(all_rows)} raw rows")
+        logger.info(f"Extracted {len(all_rows)} raw rows")
 
         # Build DataFrame
         df = self._build_dataframe(all_rows, column_names)
@@ -249,7 +254,7 @@ class FRDM2012Extractor:
             valid_mask = df["A"] == df["Z"] + df["N"]
             invalid_count = (~valid_mask).sum()
             if invalid_count > 0:
-                print(f"Warning: {invalid_count} rows have A != Z+N (checking for parsing errors)")
+                logger.warning(f"{invalid_count} rows have A != Z+N (checking for parsing errors)")
                 # Keep only valid rows
                 df = df[valid_mask]
 
@@ -289,7 +294,7 @@ class FRDM2012Extractor:
                     total=end_page - start_page + 1,
                 )
             else:
-                print(f"Text-based extraction, pages {start_page}-{end_page}...")
+                logger.info(f"Text-based extraction, pages {start_page}-{end_page}...")
 
             for page_num in page_range:
                 page = pdf.pages[page_num]
@@ -316,7 +321,7 @@ class FRDM2012Extractor:
                             row = [current_z] + values
                             all_rows.append(row)
 
-        print(f"Extracted {len(all_rows)} rows via text parsing")
+        logger.info(f"Extracted {len(all_rows)} rows via text parsing")
 
         # Build DataFrame with Z as first column
         columns = ["Z"] + FRDM2012_COLUMNS
@@ -330,7 +335,7 @@ class FRDM2012Extractor:
 
         output_path = Path(output_path)
         df.to_csv(output_path, index=False)
-        print(f"Saved {len(df)} nuclides to {output_path}")
+        logger.info(f"Saved {len(df)} nuclides to {output_path}")
         return output_path
 
 
@@ -359,7 +364,7 @@ def extract_frdm2012_from_pdf(
 
     # Fall back to text-based if too few rows
     if len(df) < 1000:  # FRDM2012 should have ~9318 nuclides
-        print("Table extraction yielded few results, trying text-based extraction...")
+        logger.info("Table extraction yielded few results, trying text-based extraction...")
         df = extractor.extract_text_based(start_page, end_page)
 
     if output_csv:
@@ -370,14 +375,16 @@ def extract_frdm2012_from_pdf(
 
 if __name__ == "__main__":
     import sys
+    from .config import setup_logging
+    setup_logging("INFO")
 
     if len(sys.argv) < 2:
-        print("Usage: python frdm2012.py <path_to_pdf> [start_page] [end_page]")
-        print("\nExample workflow:")
-        print("  1. First inspect pages to find the table:")
-        print("     python -c \"from hasna.frdm2012 import FRDM2012Extractor; e = FRDM2012Extractor('frdm2012.pdf'); e.inspect_page(70)\"")
-        print("  2. Then extract with correct page range:")
-        print("     python frdm2012.py frdm2012.pdf 68 200")
+        logger.error("Usage: python frdm2012.py <path_to_pdf> [start_page] [end_page]")
+        logger.info("Example workflow:")
+        logger.info("  1. First inspect pages to find the table:")
+        logger.info("     python -c \"from hasna.frdm2012 import FRDM2012Extractor; e = FRDM2012Extractor('frdm2012.pdf'); e.inspect_page(70)\"")
+        logger.info("  2. Then extract with correct page range:")
+        logger.info("     python frdm2012.py frdm2012.pdf 68 200")
         sys.exit(1)
 
     pdf_path = sys.argv[1]
@@ -391,7 +398,7 @@ if __name__ == "__main__":
         output_csv=DATA_DIR / "frdm2012_extracted.csv",
     )
 
-    print(f"\nExtracted {len(df)} nuclides")
-    print(f"Columns: {list(df.columns)}")
-    print(f"\nSample (first 5 rows):")
-    print(df.head())
+    logger.info(f"Extracted {len(df)} nuclides")
+    logger.info(f"Columns: {list(df.columns)}")
+    logger.info(f"Sample (first 5 rows):")
+    logger.info(str(df.head()))

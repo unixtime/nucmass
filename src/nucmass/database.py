@@ -37,24 +37,30 @@ from typing import TYPE_CHECKING, Any
 import duckdb
 import pandas as pd
 
+from .config import Config, get_logger
 from .exceptions import (
     InvalidNuclideError,
     NuclideNotFoundError,
     DataFileNotFoundError,
+    DatabaseCorruptError,
 )
 
 if TYPE_CHECKING:
     from typing import Optional
 
-DATA_DIR = Path(__file__).parent.parent.parent / "data"
-DB_PATH = DATA_DIR / "nuclear_masses.duckdb"
+# Module logger
+logger = get_logger("database")
+
+# Use config for paths (kept for backward compatibility)
+DATA_DIR = Config.DATA_DIR
+DB_PATH = Config.DB_PATH
 
 # Physical constants
 AMU_TO_MEV = 931.494  # MeV/c² per atomic mass unit
 
-# Valid ranges for nuclide parameters (based on known physics)
-Z_MIN, Z_MAX = 0, 140  # Proton number range
-N_MIN, N_MAX = 0, 250  # Neutron number range
+# Valid ranges for nuclide parameters (from config)
+Z_MIN, Z_MAX = Config.Z_MIN, Config.Z_MAX
+N_MIN, N_MAX = Config.N_MIN, Config.N_MAX
 
 
 def _validate_z(z: int, context: str = "") -> None:
@@ -164,15 +170,13 @@ def init_database(
             "Run `python scripts/download_nuclear_data.py` to download the data."
         )
 
-    if show_progress:
-        print(f"Loading AME2020 from {ame_csv}...")
+    logger.info(f"Loading AME2020 from {ame_csv}...")
     conn.execute("""
         CREATE OR REPLACE TABLE ame2020 AS
         SELECT * FROM read_csv_auto(?)
     """, [str(ame_csv)])
     count = conn.execute("SELECT COUNT(*) FROM ame2020").fetchone()[0]
-    if show_progress:
-        print(f"  Loaded {count} nuclides into ame2020 table")
+    logger.info(f"  Loaded {count} nuclides into ame2020 table")
 
     # Load FRDM2012 theoretical data
     frdm_csv = DATA_DIR / "frdm2012_masses.csv"
@@ -182,15 +186,13 @@ def init_database(
             "Run `python scripts/download_nuclear_data.py` to download the data."
         )
 
-    if show_progress:
-        print(f"Loading FRDM2012 from {frdm_csv}...")
+    logger.info(f"Loading FRDM2012 from {frdm_csv}...")
     conn.execute("""
         CREATE OR REPLACE TABLE frdm2012 AS
         SELECT * FROM read_csv_auto(?)
     """, [str(frdm_csv)])
     count = conn.execute("SELECT COUNT(*) FROM frdm2012").fetchone()[0]
-    if show_progress:
-        print(f"  Loaded {count} nuclides into frdm2012 table")
+    logger.info(f"  Loaded {count} nuclides into frdm2012 table")
 
     # Load NUBASE2020 decay data (if available)
     nubase_loaded = False
@@ -206,8 +208,7 @@ def init_database(
             break
 
     if nubase_file:
-        if show_progress:
-            print(f"Loading NUBASE2020 from {nubase_file}...")
+        logger.info(f"Loading NUBASE2020 from {nubase_file}...")
         try:
             from .nubase2020 import NUBASEParser
             parser = NUBASEParser(str(nubase_file))
@@ -216,19 +217,15 @@ def init_database(
             # Create table from DataFrame
             conn.execute("CREATE OR REPLACE TABLE nubase2020 AS SELECT * FROM nubase_df")
             count = conn.execute("SELECT COUNT(*) FROM nubase2020").fetchone()[0]
-            if show_progress:
-                print(f"  Loaded {count} entries into nubase2020 table")
+            logger.info(f"  Loaded {count} entries into nubase2020 table")
             nubase_loaded = True
         except Exception as e:
-            if show_progress:
-                print(f"  Warning: Could not load NUBASE2020: {e}")
+            logger.warning(f"Could not load NUBASE2020: {e}")
     else:
-        if show_progress:
-            print("  NUBASE2020 file not found, skipping decay data")
+        logger.info("NUBASE2020 file not found, skipping decay data")
 
     # Create combined view joining experimental, theoretical, and decay data
-    if show_progress:
-        print("Creating combined nuclides view...")
+    logger.info("Creating combined nuclides view...")
 
     if nubase_loaded:
         # Join all three datasets
@@ -317,8 +314,7 @@ def init_database(
         """)
 
     count = conn.execute("SELECT COUNT(*) FROM nuclides").fetchone()[0]
-    if show_progress:
-        print(f"  Combined view has {count} nuclides")
+    logger.info(f"  Combined view has {count} nuclides")
 
     # Create indexes for faster lookups
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ame_zna ON ame2020(Z, N, A)")
@@ -326,8 +322,7 @@ def init_database(
     if nubase_loaded:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_nubase_zn ON nubase2020(Z, N)")
 
-    if show_progress:
-        print(f"\nDatabase saved to {db_path}")
+    logger.info(f"Database saved to {db_path}")
     return conn
 
 
@@ -440,6 +435,7 @@ class NuclearDatabase:
         """Create a new database connection, initializing DB if needed."""
         if not self.db_path.exists():
             try:
+                logger.debug(f"Database not found, initializing: {self.db_path}")
                 return init_database(self.db_path)
             except DataFileNotFoundError as e:
                 raise DataFileNotFoundError(
@@ -454,7 +450,64 @@ class NuclearDatabase:
                     "  python scripts/download_nuclear_data.py"
                 ) from e
         else:
-            return duckdb.connect(str(self.db_path))
+            # Connect to existing database and validate
+            logger.debug(f"Connecting to existing database: {self.db_path}")
+            try:
+                conn = duckdb.connect(str(self.db_path))
+                self._validate_database(conn)
+                return conn
+            except DatabaseCorruptError:
+                raise
+            except duckdb.Error as e:
+                raise DatabaseCorruptError(
+                    str(self.db_path),
+                    f"DuckDB error: {e}"
+                ) from e
+
+    def _validate_database(self, conn: duckdb.DuckDBPyConnection) -> None:
+        """Validate database integrity on connection."""
+        try:
+            # Check required tables exist
+            tables = conn.execute("SHOW TABLES").fetchall()
+            table_names = {t[0] for t in tables}
+            required_tables = {"ame2020", "frdm2012"}
+
+            missing = required_tables - table_names
+            if missing:
+                raise DatabaseCorruptError(
+                    str(self.db_path),
+                    f"Missing required tables: {missing}"
+                )
+
+            # Check nuclides view exists
+            views = conn.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_type = 'VIEW'"
+            ).fetchall()
+            view_names = {v[0] for v in views}
+            if "nuclides" not in view_names:
+                raise DatabaseCorruptError(
+                    str(self.db_path),
+                    "Missing 'nuclides' view"
+                )
+
+            # Quick integrity check: verify A = Z + N for sample
+            invalid = conn.execute(
+                "SELECT COUNT(*) FROM nuclides WHERE A != Z + N LIMIT 1"
+            ).fetchone()[0]
+            if invalid > 0:
+                raise DatabaseCorruptError(
+                    str(self.db_path),
+                    "Data integrity check failed: A != Z + N"
+                )
+
+            logger.debug("Database validation passed")
+        except DatabaseCorruptError:
+            raise
+        except Exception as e:
+            raise DatabaseCorruptError(
+                str(self.db_path),
+                f"Validation query failed: {e}"
+            ) from e
 
     def query(self, sql: str) -> pd.DataFrame:
         """
@@ -1120,6 +1173,14 @@ class NuclearDatabase:
             if self._conn is not None:
                 self._conn.close()
                 self._conn = None
+
+    def __del__(self) -> None:
+        """Clean up connection on garbage collection."""
+        try:
+            self.close()
+        except Exception:
+            # Ignore errors during cleanup - object may be partially destroyed
+            pass
 
     def clear_cache(self) -> None:
         """Clear cached mass excess values for this database (thread-safe)."""

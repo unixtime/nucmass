@@ -12,12 +12,16 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-# Rate limiting: minimum seconds between requests to same domain
-_REQUEST_DELAY = 1.0
+from .config import Config, get_logger
+
+# Module logger
+logger = get_logger("ame2020")
+
+# Rate limiting from config
 _last_request_time: dict[str, float] = {}
 
 AME2020_URL = "https://www.anl.gov/sites/www/files/2021-03/mass.mas20.txt"
-DATA_DIR = Path(__file__).parent.parent.parent / "data"
+DATA_DIR = Config.DATA_DIR
 
 
 AME2020_MIRRORS = [
@@ -35,7 +39,7 @@ def download_ame2020(output_path: Path | None = None) -> Path:
         output_path = DATA_DIR / "mass.mas20.txt"
 
     if output_path.exists():
-        print(f"File already exists: {output_path}")
+        logger.info(f"File already exists: {output_path}")
         return output_path
 
     headers = {
@@ -51,33 +55,33 @@ def download_ame2020(output_path: Path | None = None) -> Path:
             domain = urlparse(url).netloc
             if domain in _last_request_time:
                 elapsed = time.time() - _last_request_time[domain]
-                if elapsed < _REQUEST_DELAY:
-                    time.sleep(_REQUEST_DELAY - elapsed)
+                if elapsed < Config.REQUEST_DELAY:
+                    time.sleep(Config.REQUEST_DELAY - elapsed)
 
-            print(f"Trying {url}...")
-            response = requests.get(url, timeout=30, headers=headers)
+            logger.info(f"Trying {url}...")
+            response = requests.get(url, timeout=Config.DOWNLOAD_TIMEOUT, headers=headers)
             _last_request_time[domain] = time.time()
             response.raise_for_status()
 
             # Validate downloaded content
             content = response.text
             if len(content) < 1000:
-                print(f"  Downloaded file too small ({len(content)} bytes), skipping")
+                logger.warning(f"Downloaded file too small ({len(content)} bytes), skipping")
                 continue
             if "<html" in content[:500].lower():
-                print("  Received HTML instead of data (likely blocked), skipping")
+                logger.warning("Received HTML instead of data (likely blocked), skipping")
                 continue
             # Check for expected AME2020 data markers
             if "Mass Excess" not in content[:5000] and "mass" not in content[:5000].lower():
-                print("  Downloaded content doesn't appear to be AME2020 data, skipping")
+                logger.warning("Downloaded content doesn't appear to be AME2020 data, skipping")
                 continue
 
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(content)
-            print(f"Saved to {output_path} ({len(content):,} bytes)")
+            logger.info(f"Saved to {output_path} ({len(content):,} bytes)")
             return output_path
         except requests.RequestException as e:
-            print(f"  Failed: {e}")
+            logger.warning(f"Failed to download from {url}: {e}")
             last_error = e
             continue
 
@@ -218,7 +222,7 @@ class AME2020Parser:
         """Export parsed data to CSV."""
         df = self.parse()
         df.to_csv(output_path, index=False)
-        print(f"Exported {len(df)} nuclides to {output_path}")
+        logger.info(f"Exported {len(df)} nuclides to {output_path}")
 
     def get_nuclide(self, z: int, n: int) -> pd.Series | None:
         """Get data for a specific nuclide by Z and N."""

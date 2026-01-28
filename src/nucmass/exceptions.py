@@ -68,3 +68,23 @@ class DataFileNotFoundError(NucmassError):
 class ExtractionError(NucmassError):
     """Raised when PDF extraction fails."""
     pass
+
+
+class DatabaseCorruptError(NucmassError):
+    """
+    Raised when the database file exists but is corrupted or invalid.
+
+    This can happen if:
+    - The database file was partially written
+    - The file is not a valid DuckDB database
+    - Required tables or views are missing
+    """
+
+    def __init__(self, db_path: str, reason: str | None = None):
+        self.db_path = db_path
+        self.reason = reason
+        message = f"Database at {db_path} is corrupted or invalid"
+        if reason:
+            message += f": {reason}"
+        message += "\nDelete the file and run: nucmass init --rebuild"
+        super().__init__(message)
