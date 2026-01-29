@@ -31,9 +31,8 @@ from __future__ import annotations
 
 import threading
 from collections import OrderedDict
-from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import duckdb
 import pandas as pd
@@ -45,9 +44,6 @@ from .exceptions import (
     DataFileNotFoundError,
     DatabaseCorruptError,
 )
-
-if TYPE_CHECKING:
-    from typing import Optional
 
 # Module logger
 logger = get_logger("database")

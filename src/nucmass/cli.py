@@ -14,7 +14,6 @@ Usage:
 from __future__ import annotations
 
 import sys
-from typing import Optional
 
 import click
 import pandas as pd
@@ -25,17 +24,41 @@ from .exceptions import NuclideNotFoundError, InvalidNuclideError, DataFileNotFo
 
 
 def get_element_symbol(z: int) -> str:
-    """Get element symbol from Z."""
+    """
+    Get element symbol from atomic number Z.
+
+    Example:
+        >>> get_element_symbol(26)
+        'Fe'
+        >>> get_element_symbol(92)
+        'U'
+    """
     return Config.get_element_symbol(z)
 
 
 def format_nuclide_name(z: int, a: int) -> str:
-    """Format nuclide name like 'Fe-56'."""
+    """
+    Format nuclide name like 'Fe-56'.
+
+    Example:
+        >>> format_nuclide_name(26, 56)
+        'Fe-56'
+        >>> format_nuclide_name(92, 238)
+        'U-238'
+    """
     return f"{get_element_symbol(z)}-{a}"
 
 
 def format_value(value: float | None, precision: int = 3, unit: str = "") -> str:
-    """Format a numeric value with optional unit."""
+    """
+    Format a numeric value with optional unit.
+
+    Example:
+        >>> format_value(123.456, precision=2, unit='keV')
+        '123.46 keV'
+        >>> format_value(None)
+        'N/A'
+    """
     if value is None or pd.isna(value):
         return "N/A"
     if unit:
@@ -327,7 +350,7 @@ def isotopes(z: int, limit: int, fmt: str):
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
-    if len(df) == 0:
+    if df.empty:
         click.echo(f"No isotopes found for Z={z}")
         sys.exit(1)
 
@@ -372,7 +395,7 @@ def isotones(n: int, limit: int):
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
-    if len(df) == 0:
+    if df.empty:
         click.echo(f"No isotones found for N={n}")
         sys.exit(1)
 
@@ -454,7 +477,7 @@ def separation(z: int, n: int):
               default='csv', help='Output format')
 @click.option('--experimental-only', is_flag=True, help='Only export nuclides with experimental data')
 @click.option('--theoretical-only', is_flag=True, help='Only export nuclides with only theoretical data')
-def export(output: Optional[str], fmt: str, experimental_only: bool, theoretical_only: bool):
+def export(output: str | None, fmt: str, experimental_only: bool, theoretical_only: bool):
     """
     Export nuclear mass data to a file.
 
