@@ -446,20 +446,21 @@ class TestNUBASEParser:
 
     @pytest.fixture
     def nubase_file(self):
-        """Get NUBASE file path, skip if not available."""
+        """Get NUBASE 2020 file path, skip if not available.
+
+        The NUBASEParser is designed for the NUBASE 2020 format (.mas20.txt).
+        Older formats have different column structures and won't work correctly.
+        """
         from nucmass.nubase2020 import DATA_DIR
-        # Try multiple possible file locations (prefer newer versions)
+        # Only accept NUBASE 2020 format files
         possible_paths = [
             DATA_DIR / "nubase_4.mas20.txt",  # NUBASE 2020
             DATA_DIR / "nubase.mas20.txt",
-            DATA_DIR / "amdc_ame2016_nubase2016.txt",  # NUBASE 2016
-            DATA_DIR / "nubase.mas12.txt",
-            DATA_DIR / "amdc_ame2012_nubase_mas12.csv",
         ]
         for filepath in possible_paths:
             if filepath.exists():
                 return filepath
-        pytest.skip("NUBASE data file not available (download manually)")
+        pytest.skip("NUBASE 2020 file not available (nubase_4.mas20.txt required)")
         return None
 
     def test_parse_half_life_seconds(self):
