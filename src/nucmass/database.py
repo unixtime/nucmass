@@ -1272,6 +1272,123 @@ class NuclearDatabase:
         )
         return stats
 
+    # Class-level cache for element descriptions (loaded once)
+    _element_info: dict[int, dict[str, Any]] | None = None
+    _element_info_lock = threading.Lock()
+
+    @classmethod
+    def _load_element_info(cls) -> dict[int, dict[str, Any]]:
+        """Load element descriptions from CSV (cached at class level)."""
+        if cls._element_info is not None:
+            return cls._element_info
+
+        with cls._element_info_lock:
+            # Double-check after acquiring lock
+            if cls._element_info is not None:
+                return cls._element_info
+
+            import csv
+            elements_file = Config.DATA_DIR / "element_descriptions.csv"
+            if not elements_file.exists():
+                logger.warning(f"Element descriptions not found: {elements_file}")
+                cls._element_info = {}
+                return cls._element_info
+
+            cls._element_info = {}
+            with open(elements_file, encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    z = int(row['Z'])
+                    cls._element_info[z] = {
+                        'Z': z,
+                        'symbol': row['symbol'],
+                        'name': row['name'],
+                        'category': row['category'],
+                        'appearance': row['appearance'],
+                        'atomic_mass': float(row['atomic_mass']) if row['atomic_mass'] else None,
+                        'electron_configuration': row['electron_configuration'],
+                        'discovered_by': row['discovered_by'],
+                        'named_by': row['named_by'] if row['named_by'] else None,
+                        'phase': row['phase'],
+                        'summary': row['summary'],
+                        'source': row['source'],
+                    }
+            logger.debug(f"Loaded descriptions for {len(cls._element_info)} elements")
+            return cls._element_info
+
+    def get_element_info(self, z: int) -> dict[str, Any] | None:
+        """
+        Get descriptive information about an element (educational reference).
+
+        Provides Wikipedia-sourced descriptions, discovery history, and basic
+        properties for each element. Useful for students and researchers who
+        want context about the elements they're studying.
+
+        Parameters
+        ----------
+        z : int
+            Atomic number (1-118 for named elements).
+
+        Returns
+        -------
+        dict or None
+            Dictionary containing:
+            - Z: Atomic number
+            - symbol: Element symbol (e.g., 'Fe')
+            - name: Element name (e.g., 'Iron')
+            - category: Element category (e.g., 'transition metal')
+            - appearance: Physical appearance description
+            - atomic_mass: Standard atomic mass (u)
+            - electron_configuration: Electron configuration
+            - discovered_by: Discoverer(s)
+            - named_by: Who named the element (if known)
+            - phase: Standard state phase (Solid, Liquid, Gas)
+            - summary: Wikipedia summary with etymology
+            - source: Wikipedia source URL
+
+            Returns None if element not found.
+
+        Example
+        -------
+        >>> db = NuclearDatabase()
+        >>> fe = db.get_element_info(26)
+        >>> print(f"{fe['name']} ({fe['symbol']})")
+        Iron (Fe)
+        >>> print(fe['summary'][:100])
+        Iron is a chemical element with symbol Fe (from Latin:ferrum) and atomic number 26...
+
+        Notes
+        -----
+        Data sourced from Bowserinator/Periodic-Table-JSON (CC0 license),
+        which aggregates information from Wikipedia.
+        """
+        elements = self._load_element_info()
+        return elements.get(z)
+
+    def get_all_elements(self) -> pd.DataFrame:
+        """
+        Get descriptive information for all elements as a DataFrame.
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with columns: Z, symbol, name, category, appearance,
+            atomic_mass, electron_configuration, discovered_by, named_by,
+            phase, summary, source.
+
+        Example
+        -------
+        >>> db = NuclearDatabase()
+        >>> elements = db.get_all_elements()
+        >>> noble_gases = elements[elements['category'] == 'noble gas']
+        >>> print(noble_gases['name'].tolist())
+        ['Helium', 'Neon', 'Argon', 'Krypton', 'Xenon', 'Radon', 'Oganesson']
+        """
+        elements = self._load_element_info()
+        if not elements:
+            return pd.DataFrame()
+        return pd.DataFrame(list(elements.values()))
+
     def close(self) -> None:
         """
         Close the database connection.

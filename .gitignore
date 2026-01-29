@@ -50,6 +50,7 @@ data/*.txt
 # Keep CSV files for distribution
 !data/ame2020_masses.csv
 !data/frdm2012_masses.csv
+!data/element_descriptions.csv
 
 # Testing
 .pytest_cache/

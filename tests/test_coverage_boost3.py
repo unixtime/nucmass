@@ -435,3 +435,77 @@ class TestAME2020Coverage:
         result = parser.get_nuclide(z=999, n=999)
 
         assert result is None
+
+
+# =============================================================================
+# Element Info Tests
+# =============================================================================
+
+class TestElementInfo:
+    """Test element description/info methods."""
+
+    def test_get_element_info_iron(self):
+        """Test getting Iron element info."""
+        from nucmass import NuclearDatabase
+
+        db = NuclearDatabase()
+        fe = db.get_element_info(26)
+
+        assert fe is not None
+        assert fe['Z'] == 26
+        assert fe['symbol'] == 'Fe'
+        assert fe['name'] == 'Iron'
+        assert 'transition metal' in fe['category']
+        assert 'ferrum' in fe['summary'].lower()  # Latin name
+
+    def test_get_element_info_oganesson(self):
+        """Test getting superheavy element info."""
+        from nucmass import NuclearDatabase
+
+        db = NuclearDatabase()
+        og = db.get_element_info(118)
+
+        assert og is not None
+        assert og['Z'] == 118
+        assert og['symbol'] == 'Og'
+        assert og['name'] == 'Oganesson'
+
+    def test_get_element_info_not_found(self):
+        """Test getting nonexistent element returns None."""
+        from nucmass import NuclearDatabase
+
+        db = NuclearDatabase()
+        result = db.get_element_info(999)
+
+        assert result is None
+
+    def test_get_all_elements(self):
+        """Test getting all elements as DataFrame."""
+        from nucmass import NuclearDatabase
+
+        db = NuclearDatabase()
+        df = db.get_all_elements()
+
+        assert len(df) >= 118  # At least all named elements
+        assert 'Z' in df.columns
+        assert 'symbol' in df.columns
+        assert 'name' in df.columns
+        assert 'summary' in df.columns
+
+        # Check specific elements exist
+        assert 'Iron' in df['name'].values
+        assert 'Uranium' in df['name'].values
+
+    def test_element_info_has_etymology(self):
+        """Test that element summaries include useful context."""
+        from nucmass import NuclearDatabase
+
+        db = NuclearDatabase()
+
+        # Lithium - from Greek 'lithos' (stone)
+        li = db.get_element_info(3)
+        assert 'lithos' in li['summary'].lower() or 'stone' in li['summary'].lower()
+
+        # Iron - Latin 'ferrum'
+        fe = db.get_element_info(26)
+        assert 'ferrum' in fe['summary'].lower() or 'latin' in fe['summary'].lower()
