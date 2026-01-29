@@ -56,8 +56,8 @@ logger = get_logger("database")
 DATA_DIR = Config.DATA_DIR
 DB_PATH = Config.DB_PATH
 
-# Physical constants
-AMU_TO_MEV = 931.494  # MeV/c² per atomic mass unit
+# Physical constants (from Config for consistency)
+AMU_TO_MEV = Config.AMU_TO_MEV  # MeV/c² per atomic mass unit
 
 # Valid ranges for nuclide parameters (from config)
 Z_MIN, Z_MAX = Config.Z_MIN, Config.Z_MAX
@@ -861,13 +861,12 @@ class NuclearDatabase:
             return None
 
         a = z + n
-        # Binding energy from mass excess
+        # Binding energy from mass excess (AME2020 convention)
         # B = Z*Delta_H + N*Delta_n - Delta_atom
-        # Delta_H = 7.28897 MeV, Delta_n = 8.07132 MeV
-        M_H = 7288.97  # keV (hydrogen atom mass excess)
-        M_n = 8071.32  # keV (neutron mass excess)
-
-        binding_keV = z * M_H + n * M_n - mass_excess_keV
+        # Using Config constants for consistency across the codebase
+        binding_keV = (z * Config.PROTON_MASS_EXCESS +
+                       n * Config.NEUTRON_MASS_EXCESS -
+                       mass_excess_keV)
         return binding_keV / 1000.0  # Convert to MeV
 
     # === Separation Energy Methods ===
@@ -897,8 +896,7 @@ class NuclearDatabase:
         if m_parent is None or m_daughter is None:
             return None
 
-        M_n = 8071.32  # neutron mass excess in keV
-        s_n = m_daughter + M_n - m_parent
+        s_n = m_daughter + Config.NEUTRON_MASS_EXCESS - m_parent
         return s_n / 1000.0  # Convert to MeV
 
     def get_separation_energy_p(self, z: int, n: int) -> float | None:
@@ -926,8 +924,7 @@ class NuclearDatabase:
         if m_parent is None or m_daughter is None:
             return None
 
-        M_H = 7288.97  # hydrogen mass excess in keV
-        s_p = m_daughter + M_H - m_parent
+        s_p = m_daughter + Config.PROTON_MASS_EXCESS - m_parent
         return s_p / 1000.0  # Convert to MeV
 
     def get_separation_energy_2n(self, z: int, n: int) -> float | None:
@@ -955,8 +952,7 @@ class NuclearDatabase:
         if m_parent is None or m_daughter is None:
             return None
 
-        M_n = 8071.32  # neutron mass excess in keV
-        s_2n = m_daughter + 2 * M_n - m_parent
+        s_2n = m_daughter + 2 * Config.NEUTRON_MASS_EXCESS - m_parent
         return s_2n / 1000.0  # Convert to MeV
 
     def get_separation_energy_2p(self, z: int, n: int) -> float | None:
@@ -982,8 +978,7 @@ class NuclearDatabase:
         if m_parent is None or m_daughter is None:
             return None
 
-        M_H = 7288.97  # hydrogen mass excess in keV
-        s_2p = m_daughter + 2 * M_H - m_parent
+        s_2p = m_daughter + 2 * Config.PROTON_MASS_EXCESS - m_parent
         return s_2p / 1000.0  # Convert to MeV
 
     def get_separation_energy_alpha(self, z: int, n: int) -> float | None:
@@ -1011,8 +1006,7 @@ class NuclearDatabase:
         if m_parent is None or m_daughter is None:
             return None
 
-        M_alpha = 2424.92  # alpha particle mass excess in keV
-        s_alpha = m_daughter + M_alpha - m_parent
+        s_alpha = m_daughter + Config.ALPHA_MASS_EXCESS - m_parent
         return s_alpha / 1000.0  # Convert to MeV
 
     def get_q_value(
@@ -1063,20 +1057,16 @@ class NuclearDatabase:
         z_projectile = z_final + z_ejectile - z_initial
         n_projectile = n_final + n_ejectile - n_initial
 
-        # Get mass excesses for light particles
-        M_n = 8071.32   # neutron
-        M_H = 7288.97   # proton/hydrogen
-        M_alpha = 2424.92  # alpha
-
+        # Get mass excesses for light particles (from Config)
         def get_light_particle_mass(z: int, n: int) -> float | None:
             if z == 0 and n == 0:
                 return 0.0  # gamma ray
             elif z == 0 and n == 1:
-                return M_n  # neutron
+                return Config.NEUTRON_MASS_EXCESS  # neutron
             elif z == 1 and n == 0:
-                return M_H  # proton
+                return Config.PROTON_MASS_EXCESS  # proton
             elif z == 2 and n == 2:
-                return M_alpha  # alpha
+                return Config.ALPHA_MASS_EXCESS  # alpha
             else:
                 # Look up in database
                 m = self.get_mass_excess(z, n)

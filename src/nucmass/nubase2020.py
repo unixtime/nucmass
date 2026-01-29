@@ -29,21 +29,17 @@ Data Columns:
 """
 
 import re
-import time
 from pathlib import Path
 
 import pandas as pd
-import requests
 
 from .config import Config, get_logger
+from .utils import download_with_mirrors
 
 # Module logger
 logger = get_logger("nubase2020")
 
 DATA_DIR = Config.DATA_DIR
-
-# Rate limiting from config
-_last_request_time: dict[str, float] = {}
 
 # Pre-compiled regex patterns for performance (avoid recompilation in loops)
 _HALF_LIFE_PATTERN = re.compile(r"([0-9.eE+\-]+)\s*(?:\([^)]*\))?\s*([a-zA-Zμ]+)")
@@ -106,62 +102,25 @@ def download_nubase2020(output_path: Path | None = None) -> Path:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         output_path = DATA_DIR / "nubase.mas20.txt"
 
-    if output_path.exists():
-        logger.info(f"File already exists: {output_path}")
-        return output_path
+    # NUBASE-specific content validators
+    def validate_nubase_markers(content: str) -> tuple[bool, str]:
+        """Check for expected NUBASE data markers (element symbols)."""
+        # NUBASE files contain lines like "  1 0010   1   H"
+        if any(elem in content[:10000] for elem in ["   H", "  He", "  Li"]):
+            return (True, "")
+        return (False, "Content doesn't appear to be NUBASE data")
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                      "AppleWebKit/537.36 (KHTML, like Gecko) "
-                      "Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/plain,*/*",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
+    validators = [
+        lambda c: (len(c) >= 1000, f"File too small ({len(c)} bytes)"),
+        lambda c: ("<html" not in c[:500].lower(), "Blocked by Cloudflare protection"),
+        validate_nubase_markers,
+    ]
 
-    last_error = None
-    for url in NUBASE2020_MIRRORS:
-        try:
-            # Rate limiting: respect server by waiting between requests
-            from urllib.parse import urlparse
-            domain = urlparse(url).netloc
-            if domain in _last_request_time:
-                elapsed = time.time() - _last_request_time[domain]
-                if elapsed < Config.REQUEST_DELAY:
-                    time.sleep(Config.REQUEST_DELAY - elapsed)
-
-            logger.info(f"Trying {url}...")
-            response = requests.get(url, timeout=Config.DOWNLOAD_TIMEOUT, headers=headers)
-            _last_request_time[domain] = time.time()
-            response.raise_for_status()
-
-            # Validate downloaded content
-            content = response.text
-            if len(content) < 1000:
-                logger.warning(f"Downloaded file too small ({len(content)} bytes), skipping")
-                continue
-            if "<html" in content[:500].lower():
-                logger.warning("Blocked by Cloudflare protection (received HTML), skipping")
-                continue
-            # Check for expected NUBASE data markers (element symbols, mass numbers)
-            # NUBASE files contain lines like "  1 0010   1   H"
-            if not any(elem in content[:10000] for elem in ["   H", "  He", "  Li"]):
-                logger.warning("Downloaded content doesn't appear to be NUBASE data, skipping")
-                continue
-
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(content)
-            logger.info(f"Saved to {output_path} ({len(content):,} bytes)")
-            return output_path
-
-        except requests.RequestException as e:
-            logger.warning(f"Failed to download from {url}: {e}")
-            last_error = e
-            continue
-
-    raise RuntimeError(
-        f"Could not download NUBASE2020 from any mirror. Last error: {last_error}\n"
-        "Please download manually from https://www.anl.gov/phy/atomic-mass-data-resources\n"
-        f"and save to {output_path}"
+    return download_with_mirrors(
+        mirrors=NUBASE2020_MIRRORS,
+        output_path=output_path,
+        validators=validators,
+        data_name="NUBASE2020",
     )
 
 

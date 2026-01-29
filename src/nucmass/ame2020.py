@@ -6,19 +6,15 @@ Reference: Wang et al., Chinese Physics C 45, 030003 (2021)
 """
 
 import re
-import time
 from pathlib import Path
 
 import pandas as pd
-import requests
 
 from .config import Config, get_logger
+from .utils import download_with_mirrors
 
 # Module logger
 logger = get_logger("ame2020")
-
-# Rate limiting from config
-_last_request_time: dict[str, float] = {}
 
 AME2020_URL = "https://www.anl.gov/sites/www/files/2021-03/mass.mas20.txt"
 DATA_DIR = Config.DATA_DIR
@@ -33,62 +29,40 @@ AME2020_MIRRORS = [
 
 
 def download_ame2020(output_path: Path | None = None) -> Path:
-    """Download AME2020 mass table from ANL or mirrors."""
+    """
+    Download AME2020 mass table from ANL or mirrors.
+
+    Args:
+        output_path: Where to save the file. Defaults to data/mass.mas20.txt
+
+    Returns:
+        Path to the downloaded file.
+
+    Raises:
+        RuntimeError: If download fails from all mirrors.
+    """
     if output_path is None:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         output_path = DATA_DIR / "mass.mas20.txt"
 
-    if output_path.exists():
-        logger.info(f"File already exists: {output_path}")
-        return output_path
+    # AME2020-specific content validators
+    def validate_ame2020_markers(content: str) -> tuple[bool, str]:
+        """Check for expected AME2020 data markers."""
+        if "Mass Excess" in content[:5000] or "mass" in content[:5000].lower():
+            return (True, "")
+        return (False, "Content doesn't appear to be AME2020 data")
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-        "Accept": "text/plain,*/*",
-    }
+    validators = [
+        lambda c: (len(c) >= 1000, f"File too small ({len(c)} bytes)"),
+        lambda c: ("<html" not in c[:500].lower(), "Received HTML instead of data"),
+        validate_ame2020_markers,
+    ]
 
-    last_error = None
-    for url in AME2020_MIRRORS:
-        try:
-            # Rate limiting: respect server by waiting between requests
-            from urllib.parse import urlparse
-            domain = urlparse(url).netloc
-            if domain in _last_request_time:
-                elapsed = time.time() - _last_request_time[domain]
-                if elapsed < Config.REQUEST_DELAY:
-                    time.sleep(Config.REQUEST_DELAY - elapsed)
-
-            logger.info(f"Trying {url}...")
-            response = requests.get(url, timeout=Config.DOWNLOAD_TIMEOUT, headers=headers)
-            _last_request_time[domain] = time.time()
-            response.raise_for_status()
-
-            # Validate downloaded content
-            content = response.text
-            if len(content) < 1000:
-                logger.warning(f"Downloaded file too small ({len(content)} bytes), skipping")
-                continue
-            if "<html" in content[:500].lower():
-                logger.warning("Received HTML instead of data (likely blocked), skipping")
-                continue
-            # Check for expected AME2020 data markers
-            if "Mass Excess" not in content[:5000] and "mass" not in content[:5000].lower():
-                logger.warning("Downloaded content doesn't appear to be AME2020 data, skipping")
-                continue
-
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(content)
-            logger.info(f"Saved to {output_path} ({len(content):,} bytes)")
-            return output_path
-        except requests.RequestException as e:
-            logger.warning(f"Failed to download from {url}: {e}")
-            last_error = e
-            continue
-
-    raise RuntimeError(
-        f"Could not download AME2020 from any mirror. Last error: {last_error}\n"
-        "Please download manually from https://www.anl.gov/phy/atomic-mass-data-resources\n"
-        f"and save to {output_path}"
+    return download_with_mirrors(
+        mirrors=AME2020_MIRRORS,
+        output_path=output_path,
+        validators=validators,
+        data_name="AME2020",
     )
 
 
