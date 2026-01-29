@@ -268,6 +268,8 @@ with NuclearDatabase() as db:
 
 ```
 nucmass/
+├── Makefile               # Development commands (make help)
+├── pyproject.toml         # Project configuration
 ├── src/nucmass/           # Python package
 │   ├── __init__.py        # Package exports
 │   ├── ame2020.py         # AME2020 parser
@@ -292,16 +294,43 @@ nucmass/
 └── figures/               # Generated plots
 ```
 
-## Run Tests
+## Development
+
+A Makefile is provided for common development tasks. Run `make help` to see all available commands.
 
 ```bash
-uv pip install -e ".[dev]"
-pytest tests/ -v
+# Install for development
+make install          # Install with dev dependencies
+make install-all      # Install all optional dependencies
+
+# Testing
+make test             # Run all tests
+make test-cov         # Run tests with coverage report
+
+# Code quality
+make lint             # Run ruff + mypy
+make format           # Auto-format code
+
+# Documentation
+make docs             # Build Sphinx docs
+make docs-live        # Live-reload docs server
+
+# Tools
+make jupyter          # Launch Jupyter Lab
+make ipython          # IPython shell with nucmass loaded
+
+# Cleanup
+make clean            # Remove cache files
 ```
 
-## Jupyter Notebook
+### Manual Installation
 
 ```bash
+# Tests only
+uv pip install -e ".[dev]"
+pytest tests/ -v
+
+# Jupyter notebooks
 uv pip install -e ".[notebook]"
 jupyter lab notebooks/explore_nuclear_data.ipynb
 ```
