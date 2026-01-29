@@ -30,6 +30,7 @@ References:
 from __future__ import annotations
 
 import threading
+from collections import OrderedDict
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -99,18 +100,39 @@ def get_connection(db_path: Path | str | None = None) -> duckdb.DuckDBPyConnecti
     """
     Get a connection to the nuclear mass database.
 
+    .. deprecated:: 1.2.0
+        Use :class:`NuclearDatabase` context manager instead to ensure
+        proper resource cleanup. This function returns an unmanaged connection
+        that the caller must close explicitly.
+
     Args:
         db_path: Path to the DuckDB database file. If None, uses the default
             location (data/nuclear_masses.duckdb).
 
     Returns:
         A DuckDB connection object that can be used for SQL queries.
+        **Important**: The caller is responsible for closing this connection.
 
     Example:
+        >>> # Preferred: use NuclearDatabase context manager
+        >>> with NuclearDatabase() as db:
+        ...     result = db.query("SELECT COUNT(*) FROM nuclides")
+        >>>
+        >>> # Legacy: manual connection (ensure you close it!)
         >>> conn = get_connection()
-        >>> result = conn.execute("SELECT COUNT(*) FROM nuclides").fetchone()
-        >>> print(f"Total nuclides: {result[0]}")
+        >>> try:
+        ...     result = conn.execute("SELECT COUNT(*) FROM nuclides").fetchone()
+        ...     print(f"Total nuclides: {result[0]}")
+        ... finally:
+        ...     conn.close()
     """
+    import warnings
+    warnings.warn(
+        "get_connection() returns an unmanaged connection. "
+        "Use NuclearDatabase context manager instead for automatic cleanup.",
+        DeprecationWarning,
+        stacklevel=2
+    )
     if db_path is None:
         db_path = DB_PATH
     return duckdb.connect(str(db_path))
@@ -219,8 +241,18 @@ def init_database(
             count = conn.execute("SELECT COUNT(*) FROM nubase2020").fetchone()[0]
             logger.info(f"  Loaded {count} entries into nubase2020 table")
             nubase_loaded = True
-        except Exception as e:
-            logger.warning(f"Could not load NUBASE2020: {e}")
+        except (FileNotFoundError, PermissionError, IOError) as e:
+            # File access errors - log and continue without NUBASE
+            logger.warning(f"Could not read NUBASE2020 file: {e}")
+        except (ValueError, KeyError, IndexError, TypeError) as e:
+            # Parsing errors - log and continue without NUBASE
+            logger.warning(f"Could not parse NUBASE2020 data: {e}")
+        except ImportError as e:
+            # Missing dependency
+            logger.warning(f"NUBASE2020 parser unavailable: {e}")
+        except duckdb.Error as e:
+            # Database error during table creation
+            logger.warning(f"Could not create NUBASE2020 table: {e}")
     else:
         logger.info("NUBASE2020 file not found, skipping decay data")
 
@@ -372,10 +404,11 @@ class NuclearDatabase:
         Run `python scripts/download_nuclear_data.py` first.
     """
 
-    # Class-level cache for mass excess values (shared across instances)
+    # Class-level LRU cache for mass excess values (shared across instances)
     # Key: (db_path, z, n, prefer), Value: mass_excess in keV
-    _mass_cache: dict[tuple, float | None] = {}
-    _CACHE_MAX_SIZE = 2000
+    # Using OrderedDict for proper LRU eviction with popitem(last=False)
+    _mass_cache: OrderedDict[tuple, float | None] = OrderedDict()
+    _CACHE_MAX_SIZE = Config.CACHE_MAX_SIZE
     _cache_lock = threading.Lock()
 
     # Thread-local storage for connections (enables thread-safe usage)
@@ -777,6 +810,8 @@ class NuclearDatabase:
         if self._cache_enabled:
             with NuclearDatabase._cache_lock:
                 if cache_key in NuclearDatabase._mass_cache:
+                    # Move to end to mark as recently used (LRU)
+                    NuclearDatabase._mass_cache.move_to_end(cache_key)
                     return NuclearDatabase._mass_cache[cache_key]
 
         nuclide = self.get_nuclide_or_none(z, n)
@@ -797,14 +832,12 @@ class NuclearDatabase:
             else:
                 result = None
 
-        # Store in cache (thread-safe write with size limit)
+        # Store in cache (thread-safe write with size limit using LRU eviction)
         if self._cache_enabled:
             with NuclearDatabase._cache_lock:
-                if len(NuclearDatabase._mass_cache) >= self._CACHE_MAX_SIZE:
-                    # Simple eviction: clear half the cache when full
-                    keys_to_remove = list(NuclearDatabase._mass_cache.keys())[:self._CACHE_MAX_SIZE // 2]
-                    for k in keys_to_remove:
-                        del NuclearDatabase._mass_cache[k]
+                # Evict oldest entries if at capacity (atomic popitem operations)
+                while len(NuclearDatabase._mass_cache) >= self._CACHE_MAX_SIZE:
+                    NuclearDatabase._mass_cache.popitem(last=False)  # Remove oldest
                 NuclearDatabase._mass_cache[cache_key] = result
 
         return result
@@ -1178,9 +1211,14 @@ class NuclearDatabase:
         """Clean up connection on garbage collection."""
         try:
             self.close()
-        except Exception:
-            # Ignore errors during cleanup - object may be partially destroyed
-            pass
+        except Exception as e:
+            # Log at debug level - object may be partially destroyed during shutdown
+            # but we want visibility into closure failures for debugging
+            try:
+                logger.debug(f"Exception during connection cleanup: {type(e).__name__}: {e}")
+            except Exception:
+                # Logger itself may be unavailable during interpreter shutdown
+                pass
 
     def clear_cache(self) -> None:
         """Clear cached mass excess values for this database (thread-safe)."""

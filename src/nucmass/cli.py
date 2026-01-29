@@ -63,6 +63,89 @@ def format_value(value: float | None, precision: int = 3, unit: str = "") -> str
     return f"{value:.{precision}f}"
 
 
+def validate_output_path(path_str: str) -> bool:
+    """
+    Validate an output path to prevent path traversal attacks.
+
+    Args:
+        path_str: The path string to validate.
+
+    Returns:
+        True if path is safe, False otherwise.
+    """
+    from pathlib import Path
+    import os
+
+    path = Path(path_str)
+
+    # Resolve to absolute path to detect traversal
+    try:
+        resolved = path.resolve()
+    except (OSError, ValueError):
+        return False
+
+    # Check for path traversal attempts
+    if '..' in path.parts:
+        return False
+
+    # Don't allow writing to system directories
+    forbidden_prefixes = ['/etc', '/bin', '/sbin', '/usr', '/var', '/tmp/../']
+    resolved_str = str(resolved)
+    for prefix in forbidden_prefixes:
+        if resolved_str.startswith(prefix):
+            return False
+
+    # Don't allow symlinks in the path that point outside current directory
+    # (only check if path exists)
+    if path.exists() and path.is_symlink():
+        try:
+            real_path = path.resolve(strict=True)
+            cwd = Path.cwd().resolve()
+            # Allow symlinks within the project or to data directories
+            if not (str(real_path).startswith(str(cwd)) or
+                    str(real_path).startswith(str(Path.home()))):
+                return False
+        except (OSError, ValueError):
+            return False
+
+    return True
+
+
+def validate_input_path(path_str: str) -> bool:
+    """
+    Validate an input path for safe file reading.
+
+    Args:
+        path_str: The path string to validate.
+
+    Returns:
+        True if path is safe to read, False otherwise.
+    """
+    from pathlib import Path
+
+    path = Path(path_str)
+
+    # Check for path traversal attempts
+    if '..' in path.parts:
+        return False
+
+    # Check if it's a symlink pointing to sensitive locations
+    if path.is_symlink():
+        try:
+            real_path = path.resolve(strict=True)
+            # Don't allow reading system files via symlinks
+            sensitive_paths = ['/etc/passwd', '/etc/shadow', '/etc/hosts',
+                              '.ssh', '.gnupg', '.aws', 'credentials']
+            real_str = str(real_path)
+            for sensitive in sensitive_paths:
+                if sensitive in real_str:
+                    return False
+        except (OSError, ValueError):
+            return False
+
+    return True
+
+
 @click.group()
 @click.version_option(version="1.1.0", prog_name="nucmass")
 def cli():
@@ -102,6 +185,10 @@ def init(rebuild: bool, db_path: str | None):
     from pathlib import Path
 
     if db_path:
+        # Validate path to prevent path traversal attacks
+        if not validate_output_path(db_path):
+            click.echo("Error: Invalid database path (path traversal not allowed)", err=True)
+            sys.exit(1)
         target_path = Path(db_path)
     else:
         target_path = DB_PATH
@@ -135,8 +222,21 @@ def init(rebuild: bool, db_path: str | None):
         click.echo("\nTo download the required data files, run:", err=True)
         click.echo("  python scripts/download_nuclear_data.py", err=True)
         sys.exit(1)
+    except PermissionError as e:
+        click.echo(f"\nPermission denied: {e}", err=True)
+        click.echo("Check write permissions for the database directory.", err=True)
+        sys.exit(1)
+    except OSError as e:
+        # Catches disk full, IO errors, etc.
+        click.echo(f"\nFilesystem error: {e}", err=True)
+        click.echo("Check disk space and file system health.", err=True)
+        sys.exit(1)
+    except MemoryError:
+        click.echo("\nOut of memory while building database.", err=True)
+        click.echo("Try closing other applications or using a machine with more RAM.", err=True)
+        sys.exit(1)
     except Exception as e:
-        click.echo(f"\nError initializing database: {e}", err=True)
+        click.echo(f"\nUnexpected error initializing database: {type(e).__name__}: {e}", err=True)
         sys.exit(1)
 
 
@@ -388,6 +488,11 @@ def export(output: Optional[str], fmt: str, experimental_only: bool, theoretical
 
         nucmass export --format json -o masses.json
     """
+    # Validate output path if specified
+    if output and not validate_output_path(output):
+        click.echo("Error: Invalid output path (path traversal not allowed)", err=True)
+        sys.exit(1)
+
     db = NuclearDatabase()
 
     # Build query based on filters
@@ -519,6 +624,16 @@ def batch(input_file: str, output: str | None, fmt: str, sep_energies: bool):
     import csv
     import json
     from pathlib import Path
+
+    # Validate input path to prevent reading sensitive files via symlinks
+    if not validate_input_path(input_file):
+        click.echo("Error: Invalid input file path", err=True)
+        sys.exit(1)
+
+    # Validate output path if specified
+    if output and not validate_output_path(output):
+        click.echo("Error: Invalid output path (path traversal not allowed)", err=True)
+        sys.exit(1)
 
     db = NuclearDatabase()
     results = []
