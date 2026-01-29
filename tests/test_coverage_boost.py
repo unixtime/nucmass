@@ -11,9 +11,7 @@ This module tests previously uncovered code paths in:
 """
 
 import os
-import tempfile
 import time
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -291,7 +289,6 @@ class TestConfig:
         """Test that reload updates DATA_DIR from environment."""
         from nucmass.config import Config
 
-        original = str(Config.DATA_DIR)
         try:
             os.environ["NUCMASS_DATA_DIR"] = "/tmp/test_data"
             Config.reload()
@@ -376,7 +373,6 @@ class TestSetupLogging:
     def test_setup_logging_default_level(self):
         """Test setup_logging with default level."""
         from nucmass.config import setup_logging
-        import logging
 
         logger = setup_logging()
         assert logger.name == "nucmass"
@@ -826,7 +822,6 @@ class TestIntegration:
     def test_magic_number_analysis(self):
         """Test analyzing magic number effects."""
         from nucmass import NuclearDatabase
-        from nucmass.config import Config
 
         db = NuclearDatabase()
 

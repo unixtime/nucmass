@@ -8,11 +8,7 @@ Focuses on:
 - plotting.py: More edge cases
 """
 
-import tempfile
-from pathlib import Path
-from unittest.mock import patch, MagicMock
 
-import pandas as pd
 import pytest
 
 
@@ -50,9 +46,8 @@ class TestDatabaseQValues:
         from nucmass import NuclearDatabase
 
         db = NuclearDatabase()
-        # Nonexistent nuclide
-        q = db.get_q_value(0, 0, 0, 1, 0, 0)
-        # May return None or a value depending on data
+        # Nonexistent nuclide - just verify it doesn't raise
+        db.get_q_value(0, 0, 0, 1, 0, 0)
 
 
 class TestDatabaseMassExcessEdgeCases:
@@ -88,8 +83,8 @@ class TestDatabaseMassExcessEdgeCases:
         from nucmass import NuclearDatabase
 
         db = NuclearDatabase()
-        me = db.get_mass_excess(0, 0)  # No data for Z=0, N=0
-        # May be None depending on data
+        # Just verify it doesn't raise for edge case
+        db.get_mass_excess(0, 0)  # No data for Z=0, N=0
 
 
 class TestDatabaseSeparationEnergies:
@@ -311,7 +306,7 @@ class TestNUBASEParserMethods:
     def test_get_stable_count(self, parser):
         """Test counting stable nuclides."""
         df = parser.to_dataframe()
-        stable = df[df["is_stable"] == True]
+        stable = df[df["is_stable"]]
         # Should have some stable nuclides (actual count depends on data source)
         assert len(stable) > 100
 

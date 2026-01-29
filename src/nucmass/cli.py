@@ -609,7 +609,7 @@ def element(z: int, output_json: bool):
             click.echo(f"  Named by:           {info['named_by']}")
 
         if info.get('summary'):
-            click.echo(f"\nDescription:")
+            click.echo("\nDescription:")
             # Word wrap the summary at ~70 chars
             summary = info['summary']
             words = summary.split()
