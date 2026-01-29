@@ -99,6 +99,29 @@ Display database summary:
 
     nucmass summary
 
+element
+~~~~~~~
+
+Look up element information (educational reference):
+
+.. code-block:: bash
+
+    # Look up Iron
+    nucmass element 26
+
+    # Look up Uranium
+    nucmass element 92
+
+    # Look up Oganesson (superheavy)
+    nucmass element 118
+
+    # Output as JSON
+    nucmass element 26 --json
+
+Displays element name, symbol, category, atomic mass, electron configuration,
+discovery history, and Wikipedia summary with etymology. Useful for PhD
+students learning about the elements they're studying.
+
 export
 ~~~~~~
 
@@ -185,6 +208,18 @@ Examples
     $ nucmass batch nuclides.txt --sep-energies -o results.csv
     Processed 3 nuclides
     Results saved to results.csv
+
+    # Look up element information
+    $ nucmass element 26
+    Iron (Fe)
+    ==================================================
+      Atomic number (Z):  26
+      Atomic mass:        55.8452 u
+      Category:           transition metal
+      Electron config:    [Ar] 3d6 4s2
+      Discovered by:      5000 BC
+    Description:
+      Iron is a chemical element with symbol Fe (from Latin:ferrum)...
 
     # Initialize/rebuild database after data updates
     $ nucmass init --rebuild
