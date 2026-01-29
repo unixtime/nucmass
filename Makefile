@@ -11,7 +11,7 @@
 #   - Python 3.12+
 #   - uv (recommended) or pip
 
-.PHONY: help install install-all test test-cov lint format docs docs-live jupyter clean clean-all
+.PHONY: help install install-all test test-cov lint format docs docs-live docs-stop jupyter clean clean-all
 
 # Default target
 .DEFAULT_GOAL := help
@@ -108,6 +108,9 @@ docs: ## Build Sphinx documentation
 
 docs-live: ## Build docs with live reload (auto-refresh on changes)
 	$(MAKE) -C docs livehtml
+
+docs-stop: ## Stop the live docs server
+	@pkill -f "sphinx-autobuild" 2>/dev/null && echo "Docs server stopped" || echo "No docs server running"
 
 docs-clean: ## Clean documentation build
 	$(MAKE) -C docs clean
