@@ -5,6 +5,16 @@ These exceptions provide clear, actionable error messages for researchers
 who may not be familiar with the underlying implementation details.
 """
 
+__all__ = [
+    "NucmassError",
+    "NuclideNotFoundError",
+    "InvalidNuclideError",
+    "DatabaseNotInitializedError",
+    "DataFileNotFoundError",
+    "ExtractionError",
+    "DatabaseCorruptError",
+]
+
 
 class NucmassError(Exception):
     """Base exception for all nucmass errors."""

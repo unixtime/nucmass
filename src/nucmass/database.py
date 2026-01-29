@@ -23,7 +23,7 @@ Example:
 
 References:
     AME2020: Wang et al., Chinese Physics C 45, 030003 (2021)
-    FRDM2012: Möller et al., ADNDT 109-110, 1-204 (2016)
+    FRDM2012: Möller et al., Atomic Data and Nuclear Data Tables 109-110, 1-204 (2016)
     NUBASE2020: Kondev et al., Chinese Physics C 45, 030001 (2021)
 """
 
@@ -47,6 +47,12 @@ from .exceptions import (
 
 # Module logger
 logger = get_logger("database")
+
+__all__ = [
+    "NuclearDatabase",
+    "init_database",
+    "get_connection",  # Deprecated but still public
+]
 
 # Use config for paths (kept for backward compatibility)
 DATA_DIR = Config.DATA_DIR
@@ -579,28 +585,44 @@ class NuclearDatabase:
         """
         Get all data for a specific nuclide.
 
-        Args:
-            z: Proton number (atomic number). Example: 26 for Iron.
-            n: Neutron number. Example: 30 for Iron-56.
+        Parameters
+        ----------
+        z : int
+            Proton number (atomic number). Valid range: 0-118.
+            Example: 26 for Iron.
+        n : int
+            Neutron number. Valid range: 0-250.
+            Example: 30 for Iron-56.
 
-        Returns:
-            pandas Series with all columns for this nuclide.
-            Key columns include:
+        Returns
+        -------
+        pd.Series
+            Series with all columns for this nuclide. Key columns include:
+
             - mass_excess_exp_keV: Experimental mass excess (keV)
             - mass_excess_th_keV: Theoretical mass excess (keV)
             - beta2: Quadrupole deformation parameter
             - has_experimental: True if AME2020 data exists
             - has_theoretical: True if FRDM2012 data exists
 
-        Raises:
-            InvalidNuclideError: If Z or N are invalid (negative, wrong type).
-            NuclideNotFoundError: If no data exists for this Z, N combination.
+        Raises
+        ------
+        InvalidNuclideError
+            If Z or N are invalid (negative, wrong type, out of range).
+        NuclideNotFoundError
+            If no data exists for this Z, N combination.
 
-        Example:
-            >>> db = NuclearDatabase()
-            >>> pb208 = db.get_nuclide(z=82, n=126)  # Lead-208 (doubly magic)
-            >>> print(f"Pb-208 is spherical: beta2 = {pb208['beta2']:.3f}")
-            Pb-208 is spherical: beta2 = 0.000
+        See Also
+        --------
+        get_nuclide_or_none : Returns None instead of raising if not found.
+        get_isotopes : Get all isotopes for a given proton number.
+
+        Examples
+        --------
+        >>> db = NuclearDatabase()
+        >>> pb208 = db.get_nuclide(z=82, n=126)  # Lead-208 (doubly magic)
+        >>> print(f"Pb-208 is spherical: beta2 = {pb208['beta2']:.3f}")
+        Pb-208 is spherical: beta2 = 0.000
         """
         _validate_z(z, "Proton number must be non-negative.")
         _validate_n(n, "Neutron number must be non-negative.")
@@ -623,14 +645,24 @@ class NuclearDatabase:
         """
         Get nuclide data, returning None if not found (no exception).
 
-        This is useful when checking many nuclides where some may not exist.
+        This is useful when checking many nuclides where some may not exist,
+        such as in loops or batch calculations.
 
-        Args:
-            z: Proton number.
-            n: Neutron number.
+        Parameters
+        ----------
+        z : int
+            Proton number. Valid range: 0-118.
+        n : int
+            Neutron number. Valid range: 0-250.
 
-        Returns:
-            pandas Series with nuclide data, or None if not found.
+        Returns
+        -------
+        pd.Series or None
+            Series with nuclide data, or None if not found.
+
+        See Also
+        --------
+        get_nuclide : Raises exception if not found.
         """
         _validate_z(z)
         _validate_n(n)
@@ -646,20 +678,36 @@ class NuclearDatabase:
         """
         Get all isotopes of an element (same Z, different N).
 
-        Args:
-            z: Proton number (atomic number).
+        Isotopes are nuclides with the same proton number but different
+        neutron numbers. They are chemically identical but have different
+        nuclear properties.
 
-        Returns:
+        Parameters
+        ----------
+        z : int
+            Proton number (atomic number). Valid range: 0-118.
+
+        Returns
+        -------
+        pd.DataFrame
             DataFrame with all isotopes, sorted by neutron number.
 
-        Raises:
-            InvalidNuclideError: If Z is invalid.
+        Raises
+        ------
+        InvalidNuclideError
+            If Z is invalid (negative or out of range).
 
-        Example:
-            >>> db = NuclearDatabase()
-            >>> tin = db.get_isotopes(z=50)  # Tin has the most stable isotopes
-            >>> print(f"Tin has {len(tin)} known isotopes")
-            >>> print(f"N range: {tin['N'].min()} to {tin['N'].max()}")
+        See Also
+        --------
+        get_isotones : Get nuclides with same N.
+        get_isobars : Get nuclides with same A.
+
+        Examples
+        --------
+        >>> db = NuclearDatabase()
+        >>> tin = db.get_isotopes(z=50)  # Tin has the most stable isotopes
+        >>> print(f"Tin has {len(tin)} known isotopes")
+        >>> print(f"N range: {tin['N'].min()} to {tin['N'].max()}")
         """
         _validate_z(z, f"Invalid proton number Z={z}")
         return self.conn.execute(
@@ -670,22 +718,35 @@ class NuclearDatabase:
         """
         Get all isotones (same N, different Z).
 
-        Isotones share the same neutron number. Magic neutron numbers
-        (N = 2, 8, 20, 28, 50, 82, 126) produce more stable isotones.
+        Isotones share the same neutron number. The magic neutron numbers
+        (N = 2, 8, 20, 28, 50, 82, 126) correspond to closed nuclear shells
+        and produce more stable isotones.
 
-        Args:
-            n: Neutron number.
+        Parameters
+        ----------
+        n : int
+            Neutron number. Valid range: 0-250.
 
-        Returns:
+        Returns
+        -------
+        pd.DataFrame
             DataFrame with all isotones, sorted by proton number.
 
-        Raises:
-            InvalidNuclideError: If N is invalid.
+        Raises
+        ------
+        InvalidNuclideError
+            If N is invalid (negative or out of range).
 
-        Example:
-            >>> db = NuclearDatabase()
-            >>> n82 = db.get_isotones(n=82)  # N=82 magic number
-            >>> print(f"Found {len(n82)} N=82 isotones")
+        See Also
+        --------
+        get_isotopes : Get nuclides with same Z.
+        get_isobars : Get nuclides with same A.
+
+        Examples
+        --------
+        >>> db = NuclearDatabase()
+        >>> n82 = db.get_isotones(n=82)  # N=82 magic number
+        >>> print(f"Found {len(n82)} N=82 isotones")
         """
         _validate_n(n, f"Invalid neutron number N={n}")
         return self.conn.execute(
@@ -696,21 +757,35 @@ class NuclearDatabase:
         """
         Get all isobars (same mass number A).
 
-        Isobars have the same total number of nucleons (A = Z + N).
+        Isobars are nuclides with the same total number of nucleons (A = Z + N)
+        but different combinations of protons and neutrons. Isobars can undergo
+        beta decay to convert between each other.
 
-        Args:
-            a: Mass number (total nucleons).
+        Parameters
+        ----------
+        a : int
+            Mass number (total nucleons). Valid range: 1-390.
 
-        Returns:
+        Returns
+        -------
+        pd.DataFrame
             DataFrame with all isobars, sorted by proton number.
 
-        Raises:
-            InvalidNuclideError: If A is invalid.
+        Raises
+        ------
+        InvalidNuclideError
+            If A is invalid (out of range).
 
-        Example:
-            >>> db = NuclearDatabase()
-            >>> a56 = db.get_isobars(a=56)  # A=56 includes Fe-56
-            >>> print(a56[['Z', 'Element', 'N', 'mass_excess_exp_keV']])
+        See Also
+        --------
+        get_isotopes : Get nuclides with same Z.
+        get_isotones : Get nuclides with same N.
+
+        Examples
+        --------
+        >>> db = NuclearDatabase()
+        >>> a56 = db.get_isobars(a=56)  # A=56 includes Fe-56
+        >>> print(a56[['Z', 'Element', 'N', 'mass_excess_exp_keV']])
         """
         _validate_a(a, f"Invalid mass number A={a}")
         return self.conn.execute(
@@ -721,26 +796,34 @@ class NuclearDatabase:
         """
         Get nuclei with significant quadrupole deformation.
 
-        The deformation parameter beta2 describes nuclear shape:
-        - beta2 ≈ 0: Spherical (magic nuclei)
-        - beta2 > 0: Prolate (cigar-shaped, stretched along symmetry axis)
-        - beta2 < 0: Oblate (disc-shaped, flattened)
+        The deformation parameter beta2 (β₂) describes nuclear shape:
 
-        Args:
-            min_beta2: Minimum absolute value of beta2. Default 0.2.
+        - β₂ ≈ 0: Spherical (magic nuclei like Pb-208)
+        - β₂ > 0: Prolate (cigar-shaped, stretched along symmetry axis)
+        - β₂ < 0: Oblate (disc-shaped, flattened perpendicular to axis)
 
-        Returns:
+        Parameters
+        ----------
+        min_beta2 : float, default 0.2
+            Minimum absolute value of beta2 to include.
+
+        Returns
+        -------
+        pd.DataFrame
             DataFrame with deformed nuclei, sorted by |beta2| descending.
 
-        Raises:
-            ValueError: If min_beta2 is negative.
+        Raises
+        ------
+        ValueError
+            If min_beta2 is negative.
 
-        Example:
-            >>> db = NuclearDatabase()
-            >>> deformed = db.get_deformed(min_beta2=0.3)
-            >>> print(f"Found {len(deformed)} highly deformed nuclei")
-            >>> # Most deformed are in rare earth and actinide regions
-            >>> print(deformed[['Z', 'N', 'A', 'beta2']].head(10))
+        Examples
+        --------
+        >>> db = NuclearDatabase()
+        >>> deformed = db.get_deformed(min_beta2=0.3)
+        >>> print(f"Found {len(deformed)} highly deformed nuclei")
+        >>> # Most deformed are in rare earth and actinide regions
+        >>> print(deformed[['Z', 'N', 'A', 'beta2']].head(10))
         """
         if min_beta2 < 0:
             raise ValueError(f"min_beta2 must be non-negative, got {min_beta2}")

@@ -16,6 +16,11 @@ from .utils import download_with_mirrors
 # Module logger
 logger = get_logger("ame2020")
 
+__all__ = [
+    "AME2020Parser",
+    "download_ame2020",
+]
+
 AME2020_URL = "https://www.anl.gov/sites/www/files/2021-03/mass.mas20.txt"
 DATA_DIR = Config.DATA_DIR
 

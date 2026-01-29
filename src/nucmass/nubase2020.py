@@ -39,6 +39,11 @@ from .utils import download_with_mirrors
 # Module logger
 logger = get_logger("nubase2020")
 
+__all__ = [
+    "NUBASEParser",
+    "download_nubase2020",
+]
+
 DATA_DIR = Config.DATA_DIR
 
 # Pre-compiled regex patterns for performance (avoid recompilation in loops)

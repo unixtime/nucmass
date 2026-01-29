@@ -22,6 +22,10 @@ from .config import Config
 from .database import NuclearDatabase, init_database, DB_PATH
 from .exceptions import NuclideNotFoundError, InvalidNuclideError, DataFileNotFoundError
 
+__all__ = [
+    "cli",
+]
+
 
 def get_element_symbol(z: int) -> str:
     """

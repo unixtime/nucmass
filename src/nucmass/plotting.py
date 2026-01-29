@@ -26,6 +26,13 @@ if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from .database import NuclearDatabase
 
+__all__ = [
+    "plot_chart",
+    "plot_isotope_chain",
+    "plot_separation_energies",
+    "plot_mass_residuals",
+    "plot_deformation_histogram",
+]
 
 # Set default font for better Unicode support
 plt.rcParams["font.family"] = "DejaVu Sans"

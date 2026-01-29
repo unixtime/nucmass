@@ -21,6 +21,11 @@ A Python toolkit providing easy access to nuclear mass and decay data from three
 
 ## Quick Start
 
+### Requirements
+
+- **Python 3.12** or higher
+- pip or [uv](https://github.com/astral-sh/uv) package manager (uv recommended for speed)
+
 ### Installation
 
 ```bash
@@ -83,20 +88,42 @@ print(f"Found {len(alpha)} alpha emitters")
 
 ```bash
 # Look up a nuclide
-nucmass lookup 26 30          # Fe-56
-nucmass lookup 82 126 --json  # Pb-208 as JSON
+$ nucmass lookup 26 30
+Fe-56 (Z=26, N=30, A=56)
+────────────────────────
+Mass excess (exp):   -60,607.05 keV
+Mass excess (th):    -60,600.33 keV
+Binding/A (exp):      8,790.36 keV
+Deformation β₂:       0.000
+Half-life:           stable
 
 # Separation energies
-nucmass separation 82 126     # Shows S_n, S_2n, S_p, S_2p, S_α
+$ nucmass separation 82 126
+Pb-208 (Z=82, N=126) Separation Energies
+────────────────────────────────────────
+S_n  (1 neutron):    7.37 MeV
+S_2n (2 neutrons):  14.11 MeV
+S_p  (1 proton):     8.00 MeV
+S_2p (2 protons):   15.35 MeV
+S_α  (alpha):       -0.52 MeV
 
 # List isotopes
-nucmass isotopes 92 -n 10     # First 10 uranium isotopes
+$ nucmass isotopes 92 -n 5
+U isotopes (Z=92): 29 found
+
+   N    A   M_exp (keV)  M_th (keV)     β₂
+ 125  217          ---    33993.44  0.127
+ 126  218          ---    31790.14  0.095
+ 127  219          ---    31980.35  0.127
+ 128  220          ---    29943.34  0.095
+ 129  221          ---    30347.81  0.095
 
 # Q-value calculation
-nucmass qvalue 26 30 26 31    # Fe-56(n,γ)Fe-57
+$ nucmass qvalue 26 30 26 31
+Q-value: 7.65 MeV (exothermic)
 
 # Database summary
-nucmass summary
+$ nucmass summary
 ```
 
 ### Plotting
@@ -171,6 +198,40 @@ The unified `nuclides` view in the DuckDB database combines all three data sourc
 | `spin_parity` | Nuclear spin and parity (e.g., "0+") | — |
 | `decay_modes` | Decay mode string (e.g., "A=100;SF=5e-5") | — |
 | `discovery_year` | Year of discovery | — |
+
+## Notation Reference
+
+For users new to nuclear physics, here's a quick reference for common notation:
+
+### Nuclide Identifiers
+
+| Symbol | Name | Description | Example |
+|--------|------|-------------|---------|
+| Z | Proton number | Number of protons (defines element) | Z=26 is Iron |
+| N | Neutron number | Number of neutrons | N=30 |
+| A | Mass number | Total nucleons (A = Z + N) | A=56 for Fe-56 |
+
+### Physical Quantities
+
+| Symbol | Name | Unit | Description |
+|--------|------|------|-------------|
+| S_n | One-neutron separation energy | MeV | Energy to remove 1 neutron |
+| S_2n | Two-neutron separation energy | MeV | Energy to remove 2 neutrons |
+| S_p | One-proton separation energy | MeV | Energy to remove 1 proton |
+| S_2p | Two-proton separation energy | MeV | Energy to remove 2 protons |
+| S_α | Alpha separation energy | MeV | Energy to remove an alpha particle |
+| Q-value | Reaction energy | MeV | Energy released (Q>0) or required (Q<0) |
+| β₂ | Quadrupole deformation | — | Nuclear shape: 0=spherical, >0=prolate, <0=oblate |
+
+### Nuclear Structure Terms
+
+| Term | Definition |
+|------|------------|
+| **Isotopes** | Nuclides with same Z (same element, different N) |
+| **Isotones** | Nuclides with same N (different elements, same neutron count) |
+| **Isobars** | Nuclides with same A (same total nucleons, different Z/N ratio) |
+| **Magic numbers** | Z or N = 2, 8, 20, 28, 50, 82, 126 — closed nuclear shells with extra stability |
+| **Doubly magic** | Both Z and N are magic (e.g., Pb-208 with Z=82, N=126) |
 
 ## Physical Calculations
 
@@ -248,6 +309,8 @@ jupyter lab notebooks/explore_nuclear_data.ipynb
 ## License
 
 MIT License - See [LICENSE](LICENSE) for details.
+
+This software is provided for research and educational purposes. When using nucmass in publications, please cite the original data sources (AME2020, FRDM2012, NUBASE2020) listed above.
 
 ## Contributing
 

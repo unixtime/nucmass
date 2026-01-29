@@ -1,16 +1,34 @@
 """
 Configuration management for nucmass.
 
-Settings can be customized via environment variables:
-    NUCMASS_DATA_DIR: Directory for data files (default: <package>/../../data)
-    NUCMASS_DB_PATH: Path to DuckDB database (default: DATA_DIR/nuclear_masses.duckdb)
-    NUCMASS_CACHE_SIZE: Maximum cache entries (default: 2000)
-    NUCMASS_DOWNLOAD_TIMEOUT: HTTP timeout in seconds (default: 60)
-    NUCMASS_LOG_LEVEL: Logging level (default: INFO)
+Settings can be customized via environment variables before importing nucmass.
 
-Example:
+Environment Variables
+---------------------
+NUCMASS_DATA_DIR : str
+    Directory for data files (default: <package>/../../data).
+NUCMASS_DB_PATH : str
+    Path to DuckDB database (default: DATA_DIR/nuclear_masses.duckdb).
+NUCMASS_CACHE_SIZE : int
+    Maximum cache entries (default: 2000).
+NUCMASS_DOWNLOAD_TIMEOUT : int
+    HTTP timeout in seconds (default: 60).
+NUCMASS_LOG_LEVEL : str
+    Logging level: DEBUG, INFO, WARNING, ERROR (default: INFO).
+
+Examples
+--------
+Configure via shell environment::
+
     export NUCMASS_DATA_DIR=/data/nuclear
     export NUCMASS_LOG_LEVEL=DEBUG
+    python -c "from nucmass import NuclearDatabase; db = NuclearDatabase()"
+
+Or configure in Python before importing::
+
+    import os
+    os.environ['NUCMASS_DATA_DIR'] = '/custom/data/path'
+    from nucmass import NuclearDatabase
 """
 
 from __future__ import annotations
@@ -18,6 +36,11 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+
+__all__ = [
+    "Config",
+    "get_logger",
+]
 
 # Base directories
 _PACKAGE_DIR = Path(__file__).parent

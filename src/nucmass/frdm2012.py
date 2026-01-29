@@ -24,6 +24,11 @@ from .config import Config, get_logger
 # Module logger
 logger = get_logger("frdm2012")
 
+__all__ = [
+    "FRDM2012Extractor",
+    "FRDM2012_COLUMNS",
+]
+
 try:
     import pdfplumber
 except ImportError:
