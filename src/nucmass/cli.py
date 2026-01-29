@@ -556,6 +556,82 @@ def summary():
 
 @cli.command()
 @click.argument('z', type=int)
+@click.option('--json', 'output_json', is_flag=True, help='Output as JSON')
+def element(z: int, output_json: bool):
+    """
+    Look up element information by atomic number Z.
+
+    Provides educational reference including element name, category,
+    discovery history, and Wikipedia summary with etymology.
+
+    Examples:
+
+        nucmass element 26   # Iron
+
+        nucmass element 92   # Uranium
+
+        nucmass element 118  # Oganesson
+
+        nucmass element 26 --json  # JSON output
+    """
+    db = NuclearDatabase()
+    info = db.get_element_info(z)
+
+    if info is None:
+        click.echo(f"Error: No element information for Z={z}", err=True)
+        sys.exit(1)
+
+    if output_json:
+        import json
+        # Convert None values properly
+        data = {k: v for k, v in info.items()}
+        click.echo(json.dumps(data, indent=2, default=str))
+    else:
+        click.echo(f"\n{info['name']} ({info['symbol']})")
+        click.echo("=" * 50)
+
+        click.echo(f"\n  Atomic number (Z):  {info['Z']}")
+        if info.get('atomic_mass'):
+            click.echo(f"  Atomic mass:        {info['atomic_mass']:.4f} u")
+        if info.get('category'):
+            click.echo(f"  Category:           {info['category']}")
+        if info.get('phase'):
+            click.echo(f"  Standard state:     {info['phase']}")
+        if info.get('appearance'):
+            click.echo(f"  Appearance:         {info['appearance']}")
+
+        if info.get('electron_configuration'):
+            click.echo(f"\n  Electron config:    {info['electron_configuration']}")
+
+        if info.get('discovered_by'):
+            click.echo(f"\n  Discovered by:      {info['discovered_by']}")
+        if info.get('named_by'):
+            click.echo(f"  Named by:           {info['named_by']}")
+
+        if info.get('summary'):
+            click.echo(f"\nDescription:")
+            # Word wrap the summary at ~70 chars
+            summary = info['summary']
+            words = summary.split()
+            lines = []
+            current_line = "  "
+            for word in words:
+                if len(current_line) + len(word) + 1 > 72:
+                    lines.append(current_line)
+                    current_line = "  " + word
+                else:
+                    current_line += " " + word if current_line != "  " else word
+            if current_line.strip():
+                lines.append(current_line)
+            click.echo("\n".join(lines))
+
+        if info.get('source'):
+            click.echo(f"\nSource: {info['source']}")
+        click.echo()
+
+
+@cli.command()
+@click.argument('z', type=int)
 @click.argument('n', type=int)
 @click.argument('z_final', type=int)
 @click.argument('n_final', type=int)
