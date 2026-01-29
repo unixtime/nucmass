@@ -376,12 +376,14 @@ class NuclearDatabase:
 
     The class supports context manager protocol for automatic cleanup:
 
+    ::
+
         with NuclearDatabase() as db:
             fe56 = db.get_nuclide(z=26, n=30)
         # Connection automatically closed
 
     Attributes:
-        db_path: Path to the DuckDB database file.
+        db_path (Path): Path to the DuckDB database file.
 
     Example:
         Basic usage - look up a nuclide::
@@ -817,7 +819,7 @@ class NuclearDatabase:
         Returns
         -------
         pd.DataFrame
-            DataFrame with deformed nuclei, sorted by |beta2| descending.
+            DataFrame with deformed nuclei, sorted by absolute beta2 descending.
 
         Raises
         ------
@@ -1190,7 +1192,7 @@ class NuclearDatabase:
                 Default 5000 keV (5 MeV).
 
         Returns:
-            DataFrame with comparison data, sorted by |difference| descending.
+            DataFrame with comparison data, sorted by absolute difference descending.
             Includes: Z, N, A, Element, mass_excess_exp_keV, mass_excess_th_keV,
             exp_minus_th_keV (difference), beta2.
 

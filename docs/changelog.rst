@@ -10,12 +10,11 @@ New Features
 * **Command-Line Interface**: Added ``nucmass`` CLI with commands for quick
   lookups, isotope listings, separation energies, Q-values, and data export.
 
-* **Physical Calculations**: New methods for computing:
-  - Separation energies: ``get_separation_energy_n()``, ``get_separation_energy_p()``,
-    ``get_separation_energy_2n()``, ``get_separation_energy_2p()``,
-    ``get_separation_energy_alpha()``
-  - Q-values: ``get_q_value()``
-  - Mass excess and binding energy: ``get_mass_excess()``, ``get_binding_energy()``
+* **Physical Calculations**: New methods for computing separation energies
+  (``get_separation_energy_n()``, ``get_separation_energy_p()``,
+  ``get_separation_energy_2n()``, ``get_separation_energy_2p()``,
+  ``get_separation_energy_alpha()``), Q-values (``get_q_value()``),
+  and mass excess/binding energy (``get_mass_excess()``, ``get_binding_energy()``).
 
 * **Plotting Utilities**: New module ``nucmass.plotting`` with functions for:
   - Nuclear charts: ``plot_chart()``
@@ -24,23 +23,19 @@ New Features
   - Mass residuals: ``plot_mass_residuals()``
   - Binding energy curve: ``plot_binding_energy_curve()``
 
-* **NUBASE Parser**: Added ``NUBASEParser`` for nuclear decay properties including:
-  - Half-lives with automatic unit conversion to seconds (20+ time units supported)
-  - Spin/parity values
-  - Decay modes (α, β⁻, β⁺, EC, IT, SF, etc.)
-  - Isomeric states with proper ZZZS encoding (3,558 nuclides + 2,285 isomers)
-  - Discovery year
-  - Optimized for NUBASE2020 format
-  - Methods: ``get_stable()``, ``get_by_decay_mode()``, ``get_by_half_life()``,
-    ``get_isomers()``, ``to_dataframe()``
+* **NUBASE Parser**: Added ``NUBASEParser`` for nuclear decay properties including
+  half-lives with automatic unit conversion (20+ time units), spin/parity values,
+  decay modes (α, β⁻, β⁺, EC, IT, SF, etc.), isomeric states with proper ZZZS
+  encoding (3,558 nuclides + 2,285 isomers), and discovery year. Methods include
+  ``get_stable()``, ``get_by_decay_mode()``, ``get_by_half_life()``,
+  ``get_isomers()``, and ``to_dataframe()``.
 
 * **Integrated Database**: NUBASE2020 decay data is now integrated into the
-  unified DuckDB database:
-  - New columns in ``nuclides`` view: ``half_life_str``, ``half_life_sec``,
-    ``is_stable``, ``spin_parity``, ``decay_modes``, ``discovery_year``,
-    ``has_decay_data``
-  - Database summary now includes ``nubase2020_count`` and ``with_decay_data``
-  - Automatic loading of NUBASE data during database initialization
+  unified DuckDB database. New columns in ``nuclides`` view: ``half_life_str``,
+  ``half_life_sec``, ``is_stable``, ``spin_parity``, ``decay_modes``,
+  ``discovery_year``, ``has_decay_data``. Database summary now includes
+  ``nubase2020_count`` and ``with_decay_data``. Automatic loading of NUBASE
+  data during database initialization.
 
 * **Context Manager Support**: ``NuclearDatabase`` now supports the context
   manager protocol for automatic connection cleanup.

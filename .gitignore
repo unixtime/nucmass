@@ -64,3 +64,6 @@ htmlcov/
 
 # OS files
 Thumbs.db
+
+# Sphinx build output
+docs/_build/
