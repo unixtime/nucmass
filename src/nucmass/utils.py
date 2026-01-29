@@ -7,9 +7,11 @@ reducing code duplication and ensuring consistent behavior.
 
 from __future__ import annotations
 
+import threading
 import time
 from pathlib import Path
 from typing import Callable
+from urllib.parse import urlparse
 
 import requests
 
@@ -17,8 +19,67 @@ from .config import Config, get_logger
 
 logger = get_logger("utils")
 
-# Rate limiting: track last request time per domain
-_last_request_time: dict[str, float] = {}
+
+class RateLimiter:
+    """
+    Thread-safe rate limiter for HTTP requests.
+
+    Tracks request times per domain and enforces a minimum delay between
+    requests to the same domain.
+
+    Example:
+        >>> limiter = RateLimiter(delay=1.0)
+        >>> limiter.wait("https://example.com/page1")  # Returns immediately
+        >>> limiter.wait("https://example.com/page2")  # Waits ~1 second
+        >>> limiter.wait("https://other.com/page")     # Returns immediately
+    """
+
+    def __init__(self, delay: float | None = None):
+        """
+        Initialize the rate limiter.
+
+        Args:
+            delay: Minimum seconds between requests to the same domain.
+                   Defaults to Config.REQUEST_DELAY.
+        """
+        self._delay = delay if delay is not None else Config.REQUEST_DELAY
+        self._last_request_time: dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def wait(self, url: str) -> None:
+        """
+        Wait if necessary before making a request to the given URL.
+
+        Args:
+            url: The URL to rate limit.
+        """
+        domain = urlparse(url).netloc
+
+        with self._lock:
+            if domain in self._last_request_time:
+                elapsed = time.time() - self._last_request_time[domain]
+                if elapsed < self._delay:
+                    time.sleep(self._delay - elapsed)
+
+    def record(self, url: str) -> None:
+        """
+        Record that a request was made to the given URL.
+
+        Args:
+            url: The URL that was requested.
+        """
+        domain = urlparse(url).netloc
+        with self._lock:
+            self._last_request_time[domain] = time.time()
+
+    def reset(self) -> None:
+        """Clear all rate limiting state."""
+        with self._lock:
+            self._last_request_time.clear()
+
+
+# Default rate limiter instance for module-level use
+_default_rate_limiter = RateLimiter()
 
 
 def download_with_mirrors(
@@ -27,6 +88,7 @@ def download_with_mirrors(
     validators: list[Callable[[str], tuple[bool, str]]] | None = None,
     headers: dict[str, str] | None = None,
     data_name: str = "data",
+    rate_limiter: RateLimiter | None = None,
 ) -> Path:
     """
     Download a file from a list of mirror URLs with fallback.
@@ -43,6 +105,7 @@ def download_with_mirrors(
             and returns (is_valid, error_message). All must pass.
         headers: Optional HTTP headers to include in requests.
         data_name: Name of the data for logging (e.g., "AME2020", "NUBASE2020").
+        rate_limiter: Optional custom RateLimiter instance. Uses default if None.
 
     Returns:
         Path to the downloaded file.
@@ -84,21 +147,19 @@ def download_with_mirrors(
             lambda c: ("<html" not in c[:500].lower(), "Received HTML instead of data"),
         ]
 
+    # Use provided rate limiter or default
+    limiter = rate_limiter if rate_limiter is not None else _default_rate_limiter
+
     last_error: Exception | None = None
 
     for url in mirrors:
         try:
             # Rate limiting: respect server by waiting between requests
-            from urllib.parse import urlparse
-            domain = urlparse(url).netloc
-            if domain in _last_request_time:
-                elapsed = time.time() - _last_request_time[domain]
-                if elapsed < Config.REQUEST_DELAY:
-                    time.sleep(Config.REQUEST_DELAY - elapsed)
+            limiter.wait(url)
 
             logger.info(f"Trying to download {data_name} from {url}...")
             response = requests.get(url, timeout=Config.DOWNLOAD_TIMEOUT, headers=headers)
-            _last_request_time[domain] = time.time()
+            limiter.record(url)
             response.raise_for_status()
 
             # Validate downloaded content
@@ -125,6 +186,114 @@ def download_with_mirrors(
             logger.warning(f"Failed to download from {url}: {e}")
             last_error = e
             continue
+
+    raise RuntimeError(
+        f"Could not download {data_name} from any mirror. Last error: {last_error}\n"
+        "Please download manually from https://www.anl.gov/phy/atomic-mass-data-resources\n"
+        f"and save to {output_path}"
+    )
+
+
+async def download_with_mirrors_async(
+    mirrors: list[str],
+    output_path: Path,
+    validators: list[Callable[[str], tuple[bool, str]]] | None = None,
+    headers: dict[str, str] | None = None,
+    data_name: str = "data",
+) -> Path:
+    """
+    Async version of download_with_mirrors using aiohttp.
+
+    This function tries each mirror in order until one succeeds.
+    Useful for downloading multiple files concurrently.
+
+    Args:
+        mirrors: List of URLs to try in order.
+        output_path: Where to save the downloaded file.
+        validators: List of validation functions. Each takes content string
+            and returns (is_valid, error_message). All must pass.
+        headers: Optional HTTP headers to include in requests.
+        data_name: Name of the data for logging (e.g., "AME2020", "NUBASE2020").
+
+    Returns:
+        Path to the downloaded file.
+
+    Raises:
+        RuntimeError: If download fails from all mirrors.
+        ImportError: If aiohttp is not installed.
+
+    Example:
+        >>> import asyncio
+        >>> async def main():
+        ...     path = await download_with_mirrors_async(
+        ...         mirrors=["https://example.com/data.txt"],
+        ...         output_path=Path("data.txt"),
+        ...     )
+        >>> asyncio.run(main())
+    """
+    try:
+        import aiohttp
+    except ImportError as e:
+        raise ImportError(
+            "aiohttp is required for async downloads. Install with: uv add aiohttp"
+        ) from e
+
+    # Return early if file already exists
+    if output_path.exists():
+        logger.info(f"{data_name} file already exists: {output_path}")
+        return output_path
+
+    # Default headers for browser-like requests
+    if headers is None:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/plain,*/*",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+
+    # Default validators if none provided
+    if validators is None:
+        validators = [
+            lambda c: (len(c) >= 1000, f"File too small ({len(c)} bytes)"),
+            lambda c: ("<html" not in c[:500].lower(), "Received HTML instead of data"),
+        ]
+
+    last_error: Exception | None = None
+
+    async with aiohttp.ClientSession(headers=headers) as session:
+        for url in mirrors:
+            try:
+                logger.info(f"Trying to download {data_name} from {url}...")
+                async with session.get(
+                    url, timeout=aiohttp.ClientTimeout(total=Config.DOWNLOAD_TIMEOUT)
+                ) as response:
+                    response.raise_for_status()
+                    content = await response.text()
+
+                # Validate downloaded content
+                all_valid = True
+                for validator in validators:
+                    is_valid, error_msg = validator(content)
+                    if not is_valid:
+                        logger.warning(f"Validation failed: {error_msg}")
+                        all_valid = False
+                        break
+
+                if not all_valid:
+                    continue
+
+                # Save the file
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_text(content)
+                logger.info(f"Saved {data_name} to {output_path} ({len(content):,} bytes)")
+                return output_path
+
+            except aiohttp.ClientError as e:
+                logger.warning(f"Failed to download from {url}: {e}")
+                last_error = e
+                continue
 
     raise RuntimeError(
         f"Could not download {data_name} from any mirror. Last error: {last_error}\n"

@@ -32,7 +32,7 @@ from __future__ import annotations
 import threading
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, overload
 
 import duckdb
 import pandas as pd
@@ -778,7 +778,19 @@ class NuclearDatabase:
             ORDER BY Z, N
         """)
 
-    def get_mass_excess(self, z: int, n: int, prefer: str = "experimental") -> float | None:
+    @overload
+    def get_mass_excess(
+        self, z: int, n: int, prefer: Literal["experimental"] = ...
+    ) -> float | None: ...
+
+    @overload
+    def get_mass_excess(
+        self, z: int, n: int, prefer: Literal["theoretical"]
+    ) -> float | None: ...
+
+    def get_mass_excess(
+        self, z: int, n: int, prefer: Literal["experimental", "theoretical"] = "experimental"
+    ) -> float | None:
         """
         Get the mass excess for a nuclide in keV.
 
