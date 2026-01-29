@@ -505,3 +505,110 @@ class TestElementInfo:
         # Iron - Latin 'ferrum'
         fe = db.get_element_info(26)
         assert 'ferrum' in fe['summary'].lower() or 'latin' in fe['summary'].lower()
+
+
+# =============================================================================
+# CLI Element Command Tests
+# =============================================================================
+
+class TestCLIElementCommand:
+    """Test CLI element command."""
+
+    def test_element_iron(self):
+        """Test element command for Iron."""
+        from click.testing import CliRunner
+        from nucmass.cli import cli
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["element", "26"])
+
+        assert result.exit_code == 0
+        assert "Iron" in result.output
+        assert "Fe" in result.output
+        assert "transition metal" in result.output
+
+    def test_element_uranium(self):
+        """Test element command for Uranium."""
+        from click.testing import CliRunner
+        from nucmass.cli import cli
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["element", "92"])
+
+        assert result.exit_code == 0
+        assert "Uranium" in result.output
+        assert "U" in result.output
+        assert "actinide" in result.output
+
+    def test_element_oganesson(self):
+        """Test element command for superheavy Oganesson."""
+        from click.testing import CliRunner
+        from nucmass.cli import cli
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["element", "118"])
+
+        assert result.exit_code == 0
+        assert "Oganesson" in result.output
+        assert "Og" in result.output
+
+    def test_element_json_output(self):
+        """Test element command with JSON output."""
+        from click.testing import CliRunner
+        from nucmass.cli import cli
+        import json
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["element", "26", "--json"])
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["Z"] == 26
+        assert data["symbol"] == "Fe"
+        assert data["name"] == "Iron"
+
+    def test_element_invalid_z(self):
+        """Test element command with invalid Z."""
+        from click.testing import CliRunner
+        from nucmass.cli import cli
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["element", "999"])
+
+        assert result.exit_code == 1
+        assert "No element information" in result.output
+
+    def test_element_hydrogen(self):
+        """Test element command for Hydrogen (Z=1)."""
+        from click.testing import CliRunner
+        from nucmass.cli import cli
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["element", "1"])
+
+        assert result.exit_code == 0
+        assert "Hydrogen" in result.output
+        assert "H" in result.output
+
+    def test_element_shows_electron_config(self):
+        """Test that element command shows electron configuration."""
+        from click.testing import CliRunner
+        from nucmass.cli import cli
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["element", "26"])
+
+        assert result.exit_code == 0
+        assert "Electron config" in result.output
+        assert "[Ar]" in result.output  # Iron's config starts with [Ar]
+
+    def test_element_shows_discovery(self):
+        """Test that element command shows discovery info."""
+        from click.testing import CliRunner
+        from nucmass.cli import cli
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["element", "92"])
+
+        assert result.exit_code == 0
+        assert "Discovered by" in result.output
