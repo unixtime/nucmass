@@ -59,3 +59,18 @@ packages = ["src/nucmass"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.coverage.run]
+source = ["src/nucmass"]
+omit = [
+    "src/nucmass/frdm2012.py",  # PDF extraction requires external files
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "async def",  # Async functions need aiohttp
+]
+fail_under = 80
