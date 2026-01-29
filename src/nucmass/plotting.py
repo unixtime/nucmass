@@ -15,14 +15,15 @@ Example:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import TYPE_CHECKING, Literal, Optional, cast
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from matplotlib.figure import Figure
+
 if TYPE_CHECKING:
-    from matplotlib.figure import Figure
     from matplotlib.axes import Axes
     from .database import NuclearDatabase
 
@@ -31,7 +32,6 @@ __all__ = [
     "plot_isotope_chain",
     "plot_separation_energies",
     "plot_mass_residuals",
-    "plot_deformation_histogram",
 ]
 
 # Set default font for better Unicode support
@@ -122,7 +122,7 @@ def plot_chart(
     if ax is None:
         fig, ax = plt.subplots(figsize=figsize)
     else:
-        fig = ax.get_figure()
+        fig = cast(Figure, ax.get_figure())
 
     # Plot nuclides
     scatter = ax.scatter(
@@ -209,7 +209,7 @@ def plot_isotope_chain(
     if ax is None:
         fig, ax = plt.subplots(figsize=figsize)
     else:
-        fig = ax.get_figure()
+        fig = cast(Figure, ax.get_figure())
 
     # Get y values based on selection
     if y == "mass_excess":
@@ -235,6 +235,7 @@ def plot_isotope_chain(
         # Batch fetch all needed masses in a single query
         # For S_n/S_2n we need masses at N and N-1/N-2
         # For S_p/S_2p we need masses at Z and Z-1/Z-2
+        s_values: list[float | None] = []
         if y in ("S_n", "S_2n"):
             # Get all masses for this Z (parent isotopes and daughters)
             masses_df = db.conn.execute(
@@ -242,22 +243,21 @@ def plot_isotope_chain(
                    FROM nuclides WHERE Z = ? ORDER BY N""", [z]
             ).df()
             # Create lookup dict: N -> mass_excess (prefer experimental)
-            mass_lookup = {}
+            mass_lookup_n: dict[int, float] = {}
             for _, row in masses_df.iterrows():
                 n_val = int(row["N"])
                 if pd.notna(row["mass_excess_exp_keV"]):
-                    mass_lookup[n_val] = float(row["mass_excess_exp_keV"])
+                    mass_lookup_n[n_val] = float(row["mass_excess_exp_keV"])
                 elif pd.notna(row["mass_excess_th_keV"]):
-                    mass_lookup[n_val] = float(row["mass_excess_th_keV"])
+                    mass_lookup_n[n_val] = float(row["mass_excess_th_keV"])
 
             # Compute separation energies
-            s_values = []
             delta_n = 1 if y == "S_n" else 2
             for n in n_values:
                 n_int = int(n)
-                if n_int in mass_lookup and (n_int - delta_n) in mass_lookup:
-                    m_parent = mass_lookup[n_int]
-                    m_daughter = mass_lookup[n_int - delta_n]
+                if n_int in mass_lookup_n and (n_int - delta_n) in mass_lookup_n:
+                    m_parent = mass_lookup_n[n_int]
+                    m_daughter = mass_lookup_n[n_int - delta_n]
                     s = (m_daughter + delta_n * M_n - m_parent) / 1000.0
                     s_values.append(s)
                 else:
@@ -272,23 +272,22 @@ def plot_isotope_chain(
                 [z, z - delta_z]
             ).df()
             # Create lookup dict: (Z, N) -> mass_excess
-            mass_lookup = {}
+            mass_lookup_zn: dict[tuple[int, int], float] = {}
             for _, row in masses_df.iterrows():
                 key = (int(row["Z"]), int(row["N"]))
                 if pd.notna(row["mass_excess_exp_keV"]):
-                    mass_lookup[key] = float(row["mass_excess_exp_keV"])
+                    mass_lookup_zn[key] = float(row["mass_excess_exp_keV"])
                 elif pd.notna(row["mass_excess_th_keV"]):
-                    mass_lookup[key] = float(row["mass_excess_th_keV"])
+                    mass_lookup_zn[key] = float(row["mass_excess_th_keV"])
 
             # Compute separation energies
-            s_values = []
             for n in n_values:
                 n_int = int(n)
                 parent_key = (z, n_int)
                 daughter_key = (z - delta_z, n_int)
-                if parent_key in mass_lookup and daughter_key in mass_lookup:
-                    m_parent = mass_lookup[parent_key]
-                    m_daughter = mass_lookup[daughter_key]
+                if parent_key in mass_lookup_zn and daughter_key in mass_lookup_zn:
+                    m_parent = mass_lookup_zn[parent_key]
+                    m_daughter = mass_lookup_zn[daughter_key]
                     s = (m_daughter + delta_z * M_H - m_parent) / 1000.0
                     s_values.append(s)
                 else:
@@ -424,7 +423,7 @@ def plot_separation_energies(
     if ax is None:
         fig, ax = plt.subplots(figsize=figsize)
     else:
-        fig = ax.get_figure()
+        fig = cast(Figure, ax.get_figure())
 
     # Set defaults
     if vmin is None:
@@ -571,7 +570,7 @@ def plot_binding_energy_curve(
     if ax is None:
         fig, ax = plt.subplots(figsize=figsize)
     else:
-        fig = ax.get_figure()
+        fig = cast(Figure, ax.get_figure())
 
     # Plot all data points
     ax.scatter(

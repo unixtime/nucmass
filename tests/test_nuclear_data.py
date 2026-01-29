@@ -196,8 +196,8 @@ class TestDuckDB:
         assert fe56["Z"] == 26
         assert fe56["N"] == 30
         assert fe56["A"] == 56
-        assert fe56["has_experimental"] == True
-        assert fe56["has_theoretical"] == True
+        assert fe56["has_experimental"]
+        assert fe56["has_theoretical"]
 
     def test_get_isotopes(self, db):
         """Test getting isotopes of an element."""
@@ -228,8 +228,8 @@ class TestDuckDB:
         """Test getting predicted-only nuclides."""
         predicted = db.get_predicted_only()
         assert len(predicted) > 5000, "Should have >5000 predicted-only nuclides"
-        assert (predicted["has_experimental"] == False).all()
-        assert (predicted["has_theoretical"] == True).all()
+        assert (~predicted["has_experimental"]).all()
+        assert predicted["has_theoretical"].all()
 
     def test_sql_query(self, db):
         """Test raw SQL query capability."""

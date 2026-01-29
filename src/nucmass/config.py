@@ -90,9 +90,10 @@ class Config:
 
     _delay_env = os.environ.get("NUCMASS_REQUEST_DELAY", "1.0")
     try:
-        REQUEST_DELAY: float = max(0.0, float(_delay_env))
+        _parsed_delay = max(0.0, float(_delay_env))
     except ValueError:
-        REQUEST_DELAY: float = 1.0
+        _parsed_delay = 1.0
+    REQUEST_DELAY: float = _parsed_delay
 
     # Logging (validated: must be valid level)
     _log_level_env = os.environ.get("NUCMASS_LOG_LEVEL", "INFO").upper()

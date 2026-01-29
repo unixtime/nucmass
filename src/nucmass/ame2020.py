@@ -5,7 +5,6 @@ Downloads and parses the official mass table from Argonne National Laboratory.
 Reference: Wang et al., Chinese Physics C 45, 030003 (2021)
 """
 
-import re
 from pathlib import Path
 
 import pandas as pd
@@ -226,7 +225,7 @@ if __name__ == "__main__":
 
     print(f"\nParsed {len(df)} nuclides")
     print(f"\nColumns: {list(df.columns)}")
-    print(f"\nSample data (Fe-56, Z=26, N=30):")
+    print("\nSample data (Fe-56, Z=26, N=30):")
     fe56 = parser.get_nuclide(z=26, n=30)
     if fe56 is not None:
         print(fe56)

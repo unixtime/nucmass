@@ -16,6 +16,8 @@ The data table contains 9318 nuclei with the following columns:
 
 import re
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 import pandas as pd
 
@@ -30,12 +32,14 @@ __all__ = [
 ]
 
 try:
-    import pdfplumber
+    import pdfplumber as _pdfplumber
+    pdfplumber: ModuleType | None = _pdfplumber
 except ImportError:
     pdfplumber = None
 
 try:
-    from tqdm import tqdm
+    from tqdm import tqdm as _tqdm
+    tqdm: Any = _tqdm
 except ImportError:
     tqdm = None
 
@@ -82,6 +86,7 @@ class FRDM2012Extractor:
     def __init__(self, pdf_path: Path | str):
         if pdfplumber is None:
             raise ImportError("pdfplumber is required. Install with: uv add pdfplumber")
+        self._pdfplumber = pdfplumber  # Store non-None reference for type safety
         self.pdf_path = Path(pdf_path)
         if not self.pdf_path.exists():
             raise FileNotFoundError(f"PDF not found: {self.pdf_path}")
@@ -94,7 +99,7 @@ class FRDM2012Extractor:
             page_num: Page number (1-indexed, as shown in PDF viewer)
             show_lines: Number of lines to display
         """
-        with pdfplumber.open(self.pdf_path) as pdf:
+        with self._pdfplumber.open(self.pdf_path) as pdf:
             if page_num < 1 or page_num > len(pdf.pages):
                 logger.error(f"Invalid page. PDF has {len(pdf.pages)} pages.")
                 return
@@ -120,7 +125,7 @@ class FRDM2012Extractor:
 
     def get_page_count(self) -> int:
         """Return total number of pages in PDF."""
-        with pdfplumber.open(self.pdf_path) as pdf:
+        with self._pdfplumber.open(self.pdf_path) as pdf:
             return len(pdf.pages)
 
     def _is_header_row(self, row: list) -> bool:
@@ -138,7 +143,7 @@ class FRDM2012Extractor:
 
     def _clean_row(self, row: list) -> list:
         """Clean a row: strip whitespace, handle empty cells."""
-        cleaned = []
+        cleaned: list[Any] = []
         for cell in row:
             if cell is None:
                 cleaned.append(None)
@@ -182,7 +187,7 @@ class FRDM2012Extractor:
 
         all_rows = []
 
-        with pdfplumber.open(self.pdf_path) as pdf:
+        with self._pdfplumber.open(self.pdf_path) as pdf:
             total_pages = len(pdf.pages)
             start_page = max(1, start_page)
             end_page = min(total_pages, end_page)
@@ -285,7 +290,7 @@ class FRDM2012Extractor:
         # Note: may have Unicode minus signs
         data_pattern = re.compile(r"^\s*(\d+)\s+(\d+)\s+([-−\d.]+)")
 
-        with pdfplumber.open(self.pdf_path) as pdf:
+        with self._pdfplumber.open(self.pdf_path) as pdf:
             total_pages = len(pdf.pages)
             start_page = max(1, start_page)
             end_page = min(total_pages, end_page)
@@ -405,5 +410,5 @@ if __name__ == "__main__":
 
     logger.info(f"Extracted {len(df)} nuclides")
     logger.info(f"Columns: {list(df.columns)}")
-    logger.info(f"Sample (first 5 rows):")
+    logger.info("Sample (first 5 rows):")
     logger.info(str(df.head()))

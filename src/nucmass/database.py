@@ -199,7 +199,8 @@ def init_database(
         CREATE OR REPLACE TABLE ame2020 AS
         SELECT * FROM read_csv_auto(?)
     """, [str(ame_csv)])
-    count = conn.execute("SELECT COUNT(*) FROM ame2020").fetchone()[0]
+    result = conn.execute("SELECT COUNT(*) FROM ame2020").fetchone()
+    count = result[0] if result else 0
     logger.info(f"  Loaded {count} nuclides into ame2020 table")
 
     # Load FRDM2012 theoretical data
@@ -215,7 +216,8 @@ def init_database(
         CREATE OR REPLACE TABLE frdm2012 AS
         SELECT * FROM read_csv_auto(?)
     """, [str(frdm_csv)])
-    count = conn.execute("SELECT COUNT(*) FROM frdm2012").fetchone()[0]
+    result = conn.execute("SELECT COUNT(*) FROM frdm2012").fetchone()
+    count = result[0] if result else 0
     logger.info(f"  Loaded {count} nuclides into frdm2012 table")
 
     # Load NUBASE2020 decay data (if available)
@@ -238,9 +240,12 @@ def init_database(
             parser = NUBASEParser(str(nubase_file))
             nubase_df = parser.to_dataframe()
 
-            # Create table from DataFrame
+            # Register DataFrame and create table
+            conn.register('nubase_df', nubase_df)
             conn.execute("CREATE OR REPLACE TABLE nubase2020 AS SELECT * FROM nubase_df")
-            count = conn.execute("SELECT COUNT(*) FROM nubase2020").fetchone()[0]
+            conn.unregister('nubase_df')
+            result = conn.execute("SELECT COUNT(*) FROM nubase2020").fetchone()
+            count = result[0] if result else 0
             logger.info(f"  Loaded {count} entries into nubase2020 table")
             nubase_loaded = True
         except (FileNotFoundError, PermissionError, IOError) as e:
@@ -347,7 +352,8 @@ def init_database(
             FULL OUTER JOIN frdm2012 f ON a.Z = f.Z AND a.N = f.N AND a.A = f.A
         """)
 
-    count = conn.execute("SELECT COUNT(*) FROM nuclides").fetchone()[0]
+    result = conn.execute("SELECT COUNT(*) FROM nuclides").fetchone()
+    count = result[0] if result else 0
     logger.info(f"  Combined view has {count} nuclides")
 
     # Create indexes for faster lookups
@@ -526,9 +532,10 @@ class NuclearDatabase:
                 )
 
             # Quick integrity check: verify A = Z + N for sample
-            invalid = conn.execute(
+            result = conn.execute(
                 "SELECT COUNT(*) FROM nuclides WHERE A != Z + N LIMIT 1"
-            ).fetchone()[0]
+            ).fetchone()
+            invalid = result[0] if result else 0
             if invalid > 0:
                 raise DatabaseCorruptError(
                     str(self.db_path),
@@ -951,7 +958,6 @@ class NuclearDatabase:
         if mass_excess_keV is None:
             return None
 
-        a = z + n
         # Binding energy from mass excess (AME2020 convention)
         # B = Z*Delta_H + N*Delta_n - Delta_atom
         # Using Config constants for consistency across the codebase
@@ -1239,32 +1245,29 @@ class NuclearDatabase:
             with_decay_data: 4,195
         """
         stats: dict[str, int] = {}
-        stats["ame2020_count"] = self.conn.execute(
-            "SELECT COUNT(*) FROM ame2020"
-        ).fetchone()[0]
-        stats["frdm2012_count"] = self.conn.execute(
-            "SELECT COUNT(*) FROM frdm2012"
-        ).fetchone()[0]
+
+        def get_count(query: str) -> int:
+            result = self.conn.execute(query).fetchone()
+            return result[0] if result else 0
+
+        stats["ame2020_count"] = get_count("SELECT COUNT(*) FROM ame2020")
+        stats["frdm2012_count"] = get_count("SELECT COUNT(*) FROM frdm2012")
 
         # Check if nubase2020 table exists
         tables = self.conn.execute("SHOW TABLES").df()
         if "nubase2020" in tables["name"].values:
-            stats["nubase2020_count"] = self.conn.execute(
-                "SELECT COUNT(*) FROM nubase2020"
-            ).fetchone()[0]
+            stats["nubase2020_count"] = get_count("SELECT COUNT(*) FROM nubase2020")
 
-        stats["total_nuclides"] = self.conn.execute(
-            "SELECT COUNT(*) FROM nuclides"
-        ).fetchone()[0]
-        stats["both_exp_and_th"] = self.conn.execute(
+        stats["total_nuclides"] = get_count("SELECT COUNT(*) FROM nuclides")
+        stats["both_exp_and_th"] = get_count(
             "SELECT COUNT(*) FROM nuclides WHERE has_experimental AND has_theoretical"
-        ).fetchone()[0]
-        stats["predicted_only"] = self.conn.execute(
+        )
+        stats["predicted_only"] = get_count(
             "SELECT COUNT(*) FROM nuclides WHERE NOT has_experimental AND has_theoretical"
-        ).fetchone()[0]
-        stats["with_decay_data"] = self.conn.execute(
+        )
+        stats["with_decay_data"] = get_count(
             "SELECT COUNT(*) FROM nuclides WHERE has_decay_data"
-        ).fetchone()[0]
+        )
         return stats
 
     def close(self) -> None:
@@ -1334,7 +1337,7 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("SEPARATION ENERGIES")
     print("=" * 60)
-    print(f"\nFe-56 separation energies:")
+    print("\nFe-56 separation energies:")
     print(f"  S_n  = {db.get_separation_energy_n(26, 30):.3f} MeV")
     print(f"  S_p  = {db.get_separation_energy_p(26, 30):.3f} MeV")
     print(f"  S_2n = {db.get_separation_energy_2n(26, 30):.3f} MeV")

@@ -67,8 +67,12 @@ class DatabaseNotInitializedError(NucmassError):
 class DataFileNotFoundError(NucmassError):
     """Raised when required data files (CSV, PDF) are not found."""
 
+    filepath: str
+    suggestion: str | None
+
     def __init__(self, filepath: str, suggestion: str | None = None):
         self.filepath = filepath
+        self.suggestion = suggestion
         message = f"Data file not found: {filepath}"
         if suggestion:
             message += f"\n{suggestion}"

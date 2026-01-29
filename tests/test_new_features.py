@@ -2,7 +2,6 @@
 
 import pytest
 import pandas as pd
-import numpy as np
 from pathlib import Path
 from click.testing import CliRunner
 
@@ -741,7 +740,6 @@ class TestThreadSafety:
     def test_concurrent_queries(self):
         """Test concurrent queries from multiple threads."""
         import threading
-        import time
 
         results = []
         errors = []

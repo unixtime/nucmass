@@ -81,7 +81,6 @@ def validate_output_path(path_str: str) -> bool:
         True if path is safe, False otherwise.
     """
     from pathlib import Path
-    import os
 
     path = Path(path_str)
 
@@ -207,7 +206,7 @@ def init(rebuild: bool, db_path: str | None):
         # Show summary
         db = NuclearDatabase(target_path)
         stats = db.summary()
-        click.echo(f"\nCurrent database contains:")
+        click.echo("\nCurrent database contains:")
         click.echo(f"  {stats['total_nuclides']:,} nuclides")
         click.echo(f"  {stats['ame2020_count']:,} from AME2020")
         click.echo(f"  {stats['frdm2012_count']:,} from FRDM2012")
@@ -433,7 +432,7 @@ def separation(z: int, n: int):
 
     # First check the nuclide exists
     try:
-        nuclide = db.get_nuclide(z, n)
+        db.get_nuclide(z, n)
     except (NuclideNotFoundError, InvalidNuclideError) as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -595,7 +594,7 @@ def qvalue(z: int, n: int, z_final: int, n_final: int, ejectile_z: int, ejectile
     if q > 0:
         click.echo("  → Exothermic (energy released)")
     else:
-        click.echo(f"  → Endothermic (threshold energy needed)")
+        click.echo("  → Endothermic (threshold energy needed)")
 
     click.echo()
 
@@ -626,7 +625,6 @@ def batch(input_file: str, output: str | None, fmt: str, sep_energies: bool):
         82 126
         92,146
     """
-    import csv
     import json
     from pathlib import Path
 

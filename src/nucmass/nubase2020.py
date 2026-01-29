@@ -584,7 +584,7 @@ if __name__ == "__main__":
         logger.info(f"Isomeric states: {len(isomers)}")
         logger.info(f"Stable nuclides: {len(stable)}")
 
-        logger.info(f"Sample data (Fe-56, Z=26, N=30):")
+        logger.info("Sample data (Fe-56, Z=26, N=30):")
         fe56 = parser.get_nuclide(z=26, n=30)
         if fe56 is not None:
             logger.info(str(fe56))
